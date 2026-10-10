@@ -1,7 +1,7 @@
 # pilot: laptop, real CheXpert Plus subset. Results are throw-away (never used for scientific decisions).
 data:
   root: null            # user-set local path (outside the repo, encrypted), or env MFSI_DATA_ROOT
-  pilot_patients: 300   # placeholder until laptop hardware is known (STOP-AND-ASK)
+  pilot_patients: 500   # laptop: 16 GB+ RAM, MX330 2 GB GPU (too small; pilot trains on CPU)
   image_format: png
 image:
   size: 224

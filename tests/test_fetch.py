@@ -9,6 +9,7 @@ from mfsi_cxr.data.fetch import (
     check_destination,
     check_refs,
     merge_parquet_parts,
+    png_table_path,
 )
 from mfsi_cxr.utils.config import REPO_ROOT
 
@@ -40,6 +41,23 @@ def test_labels_ref_as_metadata_ref_is_refused() -> None:
         check_refs(ref, ref + "/findings_fixed.json")
     check_refs(ref, None)
     check_refs(ref, "aimi.chexpert_plus:5yyj:v1_0.df_chexpert_plus_240401:bavj")
+
+
+def test_png_table_path() -> None:
+    assert png_table_path("train/patient00001/study2/view1_frontal.jpg") == (
+        "train", "patient00001/study2/view1_frontal.png")
+    assert png_table_path("valid\\patient64541\\study1\\view1_frontal.jpg")[0] == "valid"
+    with pytest.raises(ValueError):
+        png_table_path("patient00001/study2/view1_frontal.jpg")
+
+
+def test_local_image_path_maps_jpg_to_png(tmp_path: Path) -> None:
+    from mfsi_cxr.data.images import local_image_path
+
+    p = local_image_path("train/patient00001/study2/view1_frontal.jpg", tmp_path, "png")
+    assert p == tmp_path / "train" / "patient00001" / "study2" / "view1_frontal.png"
+    with pytest.raises(NotImplementedError):
+        local_image_path("train/p/s/v.jpg", tmp_path, "dicom")
 
 
 def test_merge_parquet_parts(tmp_path: Path) -> None:

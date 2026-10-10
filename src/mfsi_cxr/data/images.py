@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import numpy as np
@@ -33,6 +33,15 @@ FALLBACKS = ("all_views", "none")
 CACHE_DIR = "img_cache"
 CACHE_ARRAY = "images_u8.npy"
 CACHE_TABLE = "img_cache_index.parquet"
+# The index keeps the metadata's image path (.jpg); the files on disk carry the format's suffix.
+FILE_SUFFIX = {"png": ".png", "synthetic": ".png"}
+
+
+def local_image_path(rel: str, root: Path, image_format: str) -> Path:
+    """Index image path (relative, any suffix) -> the image file under data.root."""
+    if image_format not in FILE_SUFFIX:
+        raise NotImplementedError(f"image format {image_format!r} not supported yet (PNG vs DICOM pending)")
+    return from_data_relative(str(PurePosixPath(rel).with_suffix(FILE_SUFFIX[image_format])), root)
 
 
 def load_gray(path: Path, image_format: str) -> np.ndarray:
@@ -105,7 +114,7 @@ def build_image_cache(cfg: dict[str, Any]) -> Path:
     arr = np.lib.format.open_memmap(tmp, mode="w+", dtype=np.uint8, shape=(len(selected), size, size))
     root = data_root(cfg)
     for row, rel in enumerate(selected["image_path"]):
-        arr[row] = resize(load_gray(from_data_relative(rel, root), fmt), size)
+        arr[row] = resize(load_gray(local_image_path(rel, root, fmt), fmt), size)
     arr.flush()
     del arr
     os.replace(tmp, array_path)  # atomic: a killed job never leaves a half-written cache in place
