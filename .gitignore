@@ -1,6 +1,6 @@
-data/
-artifacts/
-outputs/
+/data/
+/artifacts/
+/outputs/
 *.npz
 *.parquet
 *.jsonl
@@ -13,3 +13,29 @@ __pycache__/
 !/README.md
 plan/
 docs/
+
+# Environments and tool caches
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Model weights, checkpoints, image caches, logs (may derive from patient data)
+*.npy
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.png
+*.jpg
+*.zip
+*.csv
+*.log
+img_cache/
+checkpoints/
+runs/
+
+# Smoke data root holds generated synthetic files only
+tests/fixtures/smoke_root/*
+!tests/fixtures/smoke_root/.gitkeep

@@ -1,0 +1,21 @@
+# pilot: laptop, real CheXpert Plus subset. Results are throw-away (never used for scientific decisions).
+data:
+  root: null            # user-set local path (outside the repo, encrypted), or env MFSI_DATA_ROOT
+  pilot_patients: 300   # placeholder until laptop hardware is known (STOP-AND-ASK)
+  image_format: png
+image:
+  size: 224
+train:
+  device: auto
+  batch_size: 4         # placeholder: set from laptop RAM
+  num_workers: 0
+  epochs: 2
+  precision: fp32
+  seeds: [0]
+arbiter:
+  model: null           # small local model, plumbing check only (Phase 5)
+  endpoint: null
+eval:
+  bootstrap_B: 200
+preflight:
+  min_free_disk_gb: 20

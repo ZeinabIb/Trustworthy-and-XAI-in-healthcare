@@ -1,0 +1,38 @@
+# Shared configuration. Profiles (configs/profiles/*.yaml) may override ONLY the keys in
+# mfsi_cxr.utils.config.ALLOWED_PROFILE_KEYS (sizes and speeds, never method choices).
+
+paths:
+  artifacts_root: artifacts   # artifacts go to <artifacts_root>/<profile>/
+  outputs_root: outputs       # outputs go to <outputs_root>/<profile>/
+
+data:
+  root: null                  # set per profile, or via env MFSI_DATA_ROOT
+  pilot_patients: null        # number of patients sampled; null = all patients
+  image_format: png           # png | dicom | synthetic
+  max_priors: 4
+  max_images_per_study: 3
+  frontal_only: true
+  split_fractions: {train: 0.7, val: 0.1, test: 0.2}
+  split_seed: 0
+
+image:
+  size: 224
+
+train:
+  device: auto                # auto = cuda -> mps -> cpu
+  batch_size: 8
+  num_workers: 0
+  epochs: 10
+  precision: fp32             # fp32 | bf16 | fp16
+  seeds: [0, 1, 2]
+
+arbiter:
+  model: null                 # chosen in Phase 5 (STOP-AND-ASK)
+  endpoint: null
+
+eval:
+  bootstrap_B: 2000
+
+preflight:
+  min_free_disk_gb: 20
+  min_free_gpu_gb: 4
