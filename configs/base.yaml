@@ -17,6 +17,13 @@ data:
 
 image:
   size: 224
+  # PLACEHOLDER normalisation: replace with the chosen MIMIC-CXR checkpoint's stats in Phase 2.
+  mean: [0.5, 0.5, 0.5]
+  std: [0.5, 0.5, 0.5]
+  frontal_fallback: all_views   # a study with no frontal image uses its other views instead
+
+labels:
+  uncertain_policy: u_ignore    # u_ignore (primary) | u_ones (sensitivity analysis)
 
 train:
   device: auto                # auto = cuda -> mps -> cpu

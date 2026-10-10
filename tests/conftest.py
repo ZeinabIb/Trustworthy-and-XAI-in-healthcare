@@ -35,6 +35,19 @@ def synthetic_cfg(smoke_cfg: dict[str, Any], tmp_path: Path) -> dict[str, Any]:
 
 
 @pytest.fixture
+def smoke_artifacts(synthetic_cfg: dict[str, Any]) -> dict[str, Any]:
+    """All Phase 1 artifacts built in a temp dir from synthetic data (index, labels, splits, text, cache)."""
+    from mfsi_cxr.data.images import build_image_cache
+    from mfsi_cxr.data.pipeline import build_index, build_splits, build_text_inputs
+
+    build_index(synthetic_cfg)
+    build_splits(synthetic_cfg)
+    build_text_inputs(synthetic_cfg)
+    build_image_cache(synthetic_cfg)
+    return synthetic_cfg
+
+
+@pytest.fixture
 def built(synthetic_cfg: dict[str, Any]) -> dict[str, Any]:
     """Index (all synthetic patients), labels and a TextBuilder."""
     from mfsi_cxr.data.index import assign_study_rank, build_image_table, finalise_index

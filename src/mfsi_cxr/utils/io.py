@@ -70,11 +70,13 @@ def check_artifact(path: Path, cfg: dict[str, Any]) -> dict[str, Any]:
     return meta
 
 
-def write_table(df: pd.DataFrame, path: Path, cfg: dict[str, Any], seed: int | None = None) -> Path:
-    """Write a parquet artifact and its sidecar."""
+def write_table(
+    df: pd.DataFrame, path: Path, cfg: dict[str, Any], seed: int | None = None, **extra: Any
+) -> Path:
+    """Write a parquet artifact and its sidecar (extra keyword fields go into the sidecar)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(path, index=False)
-    write_meta(path, cfg, seed, n_rows=len(df))
+    write_meta(path, cfg, seed, n_rows=len(df), **extra)
     return path
 
 

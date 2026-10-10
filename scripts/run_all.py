@@ -24,6 +24,7 @@ STEPS: list[tuple[str, list[str], tuple[str, ...]]] = [
     ("10_audit_data.py", [], ALL),
     ("11_build_index.py", [], ALL),
     ("12_make_splits.py", [], ALL),
+    ("13_cache_images.py", [], ALL),
     ("14_build_text_inputs.py", [], ALL),
 ]
 
