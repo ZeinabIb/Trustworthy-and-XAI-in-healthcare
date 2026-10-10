@@ -26,9 +26,11 @@ def build_index(cfg: dict[str, Any]) -> pd.DataFrame:
     """index.parquet + labels.parquet + pilot_patients.txt for the configured patient subset."""
     root, dcfg = data_root(cfg), cfg["data"]
     meta = read_metadata(root, cfg, columns=structural_columns(cfg))
-    images = assign_study_rank(build_image_table(meta, cfg))
+    images, dropped = assign_study_rank(build_image_table(meta, cfg), dcfg["study_overlap_policy"])
+    if dropped:
+        log.warning("dropped %d patients whose studies interleave in time", len(dropped))
     records = read_label_records(root / dcfg["labels_file"])
-    labels = labels_per_study(records, images, dcfg["columns"]["image_path"])
+    labels = labels_per_study(records, images, dcfg["columns"]["image_path"], dcfg["label_aggregation"])
 
     chosen = sample_patients(images, labels, dcfg["pilot_patients"], dcfg["split_seed"],
                              dcfg["pilot_min_pos_per_finding"])

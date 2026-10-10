@@ -1,8 +1,7 @@
 """Per-study labels for the 14 findings, normalised to {1, 0, -1, NaN} (Phase 1.3).
 
-The label file format is PROVISIONAL until the real `CheXpert Labels` files are inspected: records keyed
-by image path (JSON list or JSON lines) with one key per finding. Paths are matched without extension,
-so labels keyed by .jpg still join an index built from .png paths.
+Label files (checked on the real data): JSON lines, one record per image, `path_to_image` (.jpg) plus one
+key per finding. Paths are matched without extension, so labels keyed by .jpg join .png image paths.
 """
 
 from __future__ import annotations
@@ -15,6 +14,12 @@ import numpy as np
 import pandas as pd
 
 from mfsi_cxr.constants import FINDINGS, LABEL_VALUES, NEGATIVE, POSITIVE, SPLITS, UNCERTAIN
+from mfsi_cxr.utils.logging import get_logger
+
+log = get_logger("labels")
+# How labels of one study's images are combined when they differ (their reports can differ slightly).
+AGGREGATIONS = ("priority", "error")
+LABEL_PRIORITY = (POSITIVE, UNCERTAIN, NEGATIVE)
 
 
 class LabelError(ValueError):
@@ -46,8 +51,12 @@ def normalise_value(value: Any) -> float:
     return out
 
 
-def labels_per_study(records: pd.DataFrame, images: pd.DataFrame, image_path_col: str) -> pd.DataFrame:
+def labels_per_study(
+    records: pd.DataFrame, images: pd.DataFrame, image_path_col: str, aggregation: str
+) -> pd.DataFrame:
     """One row per study_id with the 14 finding columns in FINDINGS order."""
+    if aggregation not in AGGREGATIONS:
+        raise ValueError(f"unknown label aggregation {aggregation!r}; expected one of {AGGREGATIONS}")
     missing = [f for f in FINDINGS if f not in records.columns]
     if missing:
         raise LabelError(f"label file lacks findings: {missing}")
@@ -57,12 +66,23 @@ def labels_per_study(records: pd.DataFrame, images: pd.DataFrame, image_path_col
     recs["key"] = recs[image_path_col].map(path_key)
     img = images[["image_path", "study_id"]].assign(key=images["image_path"].map(path_key))
     joined = img.merge(recs.drop(columns=[image_path_col]), on="key", how="inner")
-    # All images of a study come from the same report, so their labels must agree.
     disagree = joined.groupby("study_id")[list(FINDINGS)].nunique(dropna=False).gt(1).any(axis=1)
     if disagree.any():
-        raise LabelError(f"labels differ between images of studies {list(disagree[disagree].index[:5])}")
-    out = joined.drop_duplicates("study_id")[["study_id", *FINDINGS]]
+        if aggregation == "error":
+            raise LabelError(f"labels differ between images of studies {list(disagree[disagree].index[:5])}")
+        log.warning("%d studies have labels that differ between images; combined by %r",
+                    int(disagree.sum()), aggregation)
+    out = _combine(joined, list(FINDINGS))
     return out.sort_values("study_id").reset_index(drop=True)
+
+
+def _combine(joined: pd.DataFrame, findings: list[str]) -> pd.DataFrame:
+    """Per-study label from its images' labels: positive > uncertain > negative > blank (vectorised)."""
+    rank_of = {state: len(LABEL_PRIORITY) - i for i, state in enumerate(LABEL_PRIORITY)}  # blank -> 0
+    state_of = {rank: state for state, rank in rank_of.items()} | {0: np.nan}
+    ranks = joined[findings].apply(lambda col: col.map(rank_of).fillna(0))
+    best = ranks.groupby(joined["study_id"]).max()
+    return best.apply(lambda col: col.map(state_of)).astype("float64").reset_index()
 
 
 def prevalence_table(

@@ -40,17 +40,39 @@ def _records(paths: list[str], value: float) -> pd.DataFrame:
     return pd.DataFrame([{"path_to_image": p, **{f: value for f in FINDINGS}} for p in paths])
 
 
-def test_disagreeing_images_in_one_study() -> None:
-    images = pd.DataFrame({"image_path": ["t/p1/study1/view1.png", "t/p1/study1/view2.png"],
+TWO_IMAGES = pd.DataFrame({"image_path": ["t/p1/study1/view1.png", "t/p1/study1/view2.png"],
                            "study_id": ["p1/study1"] * 2})
-    recs = pd.concat([_records(["t/p1/study1/view1.png"], 1.0), _records(["t/p1/study1/view2.png"], 0.0)])
+
+
+def _two(first: float | None, second: float | None) -> pd.DataFrame:
+    return pd.concat(
+        [_records(["t/p1/study1/view1.png"], first), _records(["t/p1/study1/view2.png"], second)]
+    )
+
+
+def test_disagreeing_images_error_policy() -> None:
     with pytest.raises(LabelError, match="differ"):
-        labels_per_study(recs, images, "path_to_image")
+        labels_per_study(_two(1.0, 0.0), TWO_IMAGES, "path_to_image", "error")
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "expected"),
+    [(1.0, 0.0, 1.0), (0.0, -1.0, -1.0), (-1.0, 1.0, 1.0), (None, 0.0, 0.0), (None, None, None)],
+)
+def test_priority_combination(first: float | None, second: float | None, expected: float | None) -> None:
+    out = labels_per_study(_two(first, second), TWO_IMAGES, "path_to_image", "priority")
+    value = out.loc[0, "Cardiomegaly"]
+    assert (np.isnan(value) if expected is None else value == expected)
+
+
+def test_unknown_aggregation() -> None:
+    with pytest.raises(ValueError):
+        labels_per_study(_two(1.0, 1.0), TWO_IMAGES, "path_to_image", "vote")
 
 
 def test_extension_independent_join() -> None:
     images = pd.DataFrame({"image_path": ["t/p1/study1/view1.png"], "study_id": ["p1/study1"]})
-    out = labels_per_study(_records(["t/p1/study1/view1.jpg"], 1.0), images, "path_to_image")
+    out = labels_per_study(_records(["t/p1/study1/view1.jpg"], 1.0), images, "path_to_image", "priority")
     assert len(out) == 1 and out.loc[0, "Cardiomegaly"] == 1.0
 
 

@@ -5,11 +5,15 @@
 
 data:
   metadata_file: df_chexpert_plus_240401.parquet   # relative to data.root (csv also readable)
-  labels_file: report_fixed.json               # PENDING: report_fixed vs impression_fixed (question 4)
+  # report_fixed.json is NOT usable: its labels are not aligned with its image paths (checked
+  # 2026-10-11, agreement at chance level). PENDING Zeinab's confirmation of impression_fixed.
+  labels_file: impression_fixed.json
+  label_aggregation: priority                  # PENDING: images of a study disagree in 380 studies
+  study_overlap_policy: drop_patients          # PENDING: 366 patients have studies interleaved in time
   columns:
-    image_path: path_to_image                  # relative path, e.g. train/patient00001/study1/view1_frontal.png
+    image_path: path_to_image                  # relative path, e.g. train/patient00001/study1/view1_frontal.jpg
     patient_id: deid_patient_id
-    study_order: patient_report_date_order     # PENDING: confirm it is chronological (question 6)
+    study_order: patient_report_date_order     # ranks IMAGES within a patient; a study starts at its min
     view: frontal_lateral
     source_split: split
   frontal_value: Frontal

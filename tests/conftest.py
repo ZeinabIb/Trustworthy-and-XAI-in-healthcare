@@ -57,9 +57,11 @@ def built(synthetic_cfg: dict[str, Any]) -> dict[str, Any]:
 
     cfg = synthetic_cfg
     root = Path(cfg["data"]["root"])
-    images = assign_study_rank(build_image_table(read_metadata(root, cfg, structural_columns(cfg)), cfg))
+    dcfg = cfg["data"]
+    table = build_image_table(read_metadata(root, cfg, structural_columns(cfg)), cfg)
+    images, _ = assign_study_rank(table, dcfg["study_overlap_policy"])
     index = finalise_index(images)
-    labels = labels_per_study(read_label_records(root / cfg["data"]["labels_file"]), index,
-                              cfg["data"]["columns"]["image_path"])
+    labels = labels_per_study(read_label_records(root / dcfg["labels_file"]), index,
+                              dcfg["columns"]["image_path"], dcfg["label_aggregation"])
     return {"cfg": cfg, "root": root, "images": images, "index": index, "labels": labels,
             "builder": TextBuilder.from_root(root, index, cfg)}

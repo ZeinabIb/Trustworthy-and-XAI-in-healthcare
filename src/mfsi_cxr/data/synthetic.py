@@ -61,7 +61,8 @@ def make_synthetic_dataset(root: Path, cfg: dict[str, Any]) -> dict[str, Path]:
         is_radiologist = p % syn["radiologist_every"] == syn["radiologist_every"] - 1
         age = int(rng.integers(20, 90))
         sex = str(rng.choice(["F", "M"]))
-        for order, number in enumerate(folder_numbers, start=1):
+        image_order = 0  # like CheXpert Plus, the order column ranks images, not studies
+        for number in folder_numbers:
             study_id = f"{patient}/study{number}"
             no_pre_read = rng.random() < syn["p_no_pre_read"]
             sections = {s: (None if no_pre_read else pre_read_text(s, study_id)) for s in PRE_READ_SECTIONS}
@@ -70,13 +71,14 @@ def make_synthetic_dataset(root: Path, cfg: dict[str, Any]) -> dict[str, Path]:
             labels = _draw_labels(rng)
             n_images = int(rng.integers(1, syn["max_images"] + 1))
             for k in range(1, n_images + 1):
+                image_order += 1
                 view = "Frontal" if k == 1 or rng.random() < 0.5 else "Lateral"
                 rel = f"{'valid' if is_radiologist else 'train'}/{study_id}/view{k}_{view.lower()}.png"
                 rows.append(
                     {
                         cols["image_path"]: rel,
                         cols["patient_id"]: patient,
-                        cols["study_order"]: order,
+                        cols["study_order"]: image_order,
                         cols["view"]: view,
                         cols["source_split"]: "valid" if is_radiologist else "train",
                         "age": age,

@@ -44,21 +44,42 @@ def build_image_table(meta: pd.DataFrame, cfg: dict[str, Any]) -> pd.DataFrame:
     )
 
 
-def assign_study_rank(images: pd.DataFrame) -> pd.DataFrame:
-    """Add study_rank (0 = earliest) per patient from the order column. Raise if order is unreliable."""
+OVERLAP_POLICIES = ("drop_patients", "error")
+
+
+def overlapping_patients(images: pd.DataFrame) -> set[str]:
+    """Patients with a study whose [min, max] order interval overlaps an earlier study's interval."""
+    iv = images.groupby("study_id").agg(
+        patient_id=("patient_id", "first"), lo=("study_order", "min"), hi=("study_order", "max")
+    )
+    iv = iv.sort_values(["patient_id", "lo"])
+    prev_hi = iv.groupby("patient_id")["hi"].transform(lambda s: s.cummax().shift())
+    return set(iv.loc[prev_hi.notna() & (iv["lo"] <= prev_hi), "patient_id"])
+
+
+def assign_study_rank(images: pd.DataFrame, overlap_policy: str) -> tuple[pd.DataFrame, set[str]]:
+    """Add study_rank (0 = earliest) per patient. Returns (images, dropped patient ids).
+
+    The order column may rank images rather than studies (CheXpert Plus does): a study's time is the
+    order of its earliest image. If two studies of a patient interleave in time, their order is
+    ambiguous: `drop_patients` removes those patients, `error` raises (escalate).
+    """
+    if overlap_policy not in OVERLAP_POLICIES:
+        raise ValueError(f"unknown overlap policy {overlap_policy!r}; expected one of {OVERLAP_POLICIES}")
     if images["study_order"].isna().any():
         raise StudyOrderError("study_order has missing values")
-    per_study = images.groupby("study_id")["study_order"].nunique()
-    if (per_study > 1).any():
-        bad = list(per_study[per_study > 1].index[:5])
-        raise StudyOrderError(f"study_order differs within studies: {bad}")
-    studies = images.drop_duplicates("study_id")[["patient_id", "study_id", "study_order"]]
-    dup = studies.duplicated(["patient_id", "study_order"], keep=False)
+    ambiguous = overlapping_patients(images)
+    if ambiguous and overlap_policy == "error":
+        raise StudyOrderError(f"{len(ambiguous)} patients have studies interleaved in time")
+    images = images[~images["patient_id"].isin(ambiguous)]
+    studies = images.groupby("study_id").agg(patient_id=("patient_id", "first"), start=("study_order", "min"))
+    dup = studies.duplicated(["patient_id", "start"], keep=False)
     if dup.any():
-        raise StudyOrderError(f"ties in study_order within patients: {list(studies[dup].study_id[:5])}")
-    studies = studies.sort_values(["patient_id", "study_order"])
+        raise StudyOrderError(f"ties in study_order within patients: {list(studies.index[dup][:5])}")
+    studies = studies.sort_values(["patient_id", "start"])
     studies["study_rank"] = studies.groupby("patient_id").cumcount()
-    return images.merge(studies[["study_id", "study_rank"]], on="study_id", how="left")
+    ranked = images.merge(studies[["study_rank"]], left_on="study_id", right_index=True, how="left")
+    return ranked, ambiguous
 
 
 def sample_patients(

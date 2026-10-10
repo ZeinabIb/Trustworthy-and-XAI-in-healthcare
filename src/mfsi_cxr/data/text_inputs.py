@@ -86,10 +86,15 @@ def _demographics(row: pd.Series, columns: list[str]) -> str:
 
 
 def _per_study(meta: pd.DataFrame, index: pd.DataFrame) -> pd.DataFrame:
-    """Attach study_id via the image path and keep one row per study (sections are per report)."""
+    """Attach study_id via the image path and keep one row per study.
+
+    Each image row carries its own copy of the report and the copies can differ slightly, so the row of
+    the study's first image (by path) is used, which makes the result independent of file order.
+    """
     paths = index[[IMAGE_PATH, "study_id"]]
     meta = meta.assign(**{IMAGE_PATH: meta[IMAGE_PATH].astype(str).str.replace("\\", "/")})
-    return meta.merge(paths, on=IMAGE_PATH, how="inner").drop_duplicates("study_id").set_index("study_id")
+    joined = meta.merge(paths, on=IMAGE_PATH, how="inner").sort_values(IMAGE_PATH)
+    return joined.drop_duplicates("study_id").set_index("study_id")
 
 
 class TextBuilder:
