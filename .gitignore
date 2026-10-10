@@ -1,0 +1,15 @@
+data/
+artifacts/
+outputs/
+*.npz
+*.parquet
+*.jsonl
+*.dcm
+.env
+__pycache__/
+
+# Markdown docs stay local (plan/, docs/, CLAUDE.md, etc.)
+*.md
+!/README.md
+plan/
+docs/
