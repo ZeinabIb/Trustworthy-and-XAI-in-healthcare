@@ -1,0 +1,22 @@
+# full: university GPU server. All reported results come from this profile. Never reads artifacts/pilot/.
+data:
+  root: null              # server path (user-set), or env MFSI_DATA_ROOT
+  pilot_patients: 30000   # placeholder; final number is STOP-AND-ASK
+  image_format: png       # confirm PNG vs DICOM (STOP-AND-ASK)
+image:
+  size: 224
+train:
+  device: auto
+  batch_size: 32          # placeholder: set from GPU memory
+  num_workers: 8
+  epochs: 10
+  precision: bf16
+  seeds: [0, 1, 2]
+arbiter:
+  model: null             # chosen 7-14B open-weight model (STOP-AND-ASK, Phase 5)
+  endpoint: null
+eval:
+  bootstrap_B: 2000
+preflight:
+  min_free_disk_gb: 200
+  min_free_gpu_gb: 16

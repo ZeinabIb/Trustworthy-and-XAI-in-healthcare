@@ -1,0 +1,21 @@
+# smoke: CPU, synthetic fixtures only, mock LLM. Proves the logic is correct.
+data:
+  root: tests/fixtures/smoke_root
+  pilot_patients: 20
+  image_format: synthetic
+image:
+  size: 64
+train:
+  device: cpu
+  batch_size: 2
+  num_workers: 0
+  epochs: 1
+  precision: fp32
+  seeds: [0]
+arbiter:
+  model: mock
+  endpoint: null
+eval:
+  bootstrap_B: 50
+preflight:
+  min_free_disk_gb: 1
