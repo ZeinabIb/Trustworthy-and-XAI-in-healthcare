@@ -31,7 +31,10 @@ def test_labels_ref_as_metadata_ref_is_refused() -> None:
     ref = "aimi.chexpert_plus:5yyj:v1_0.chexpert_labels:pmec"
     with pytest.raises(UnsafeDestinationError, match="labels table"):
         check_refs(ref, ref)
+    with pytest.raises(UnsafeDestinationError, match="labels table"):
+        check_refs(ref, ref + "/findings_fixed.json")
     check_refs(ref, None)
+    check_refs(ref, "aimi.chexpert_plus:5yyj:v1_0.df_chexpert_plus_240401:bavj")
 
 
 def test_plain_local_folder_is_accepted(tmp_path: Path) -> None:

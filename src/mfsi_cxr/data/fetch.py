@@ -69,9 +69,13 @@ def fetch_metadata_table(table_ref: str, dest_file: Path) -> Path:
 
 
 def check_refs(labels_ref: str, metadata_ref: str | None) -> None:
-    if metadata_ref and metadata_ref == labels_ref:
+    if not metadata_ref:
+        return
+    labels_table = labels_ref.split("/")[0]
+    if metadata_ref.split("/")[0] == labels_table or "/" in metadata_ref:
         raise UnsafeDestinationError(
-            "--metadata-table is the labels table; copy the ref from the df_chexpert_plus_240401 table page"
+            "--metadata-table must be the df_chexpert_plus_240401 table itself, not the labels table "
+            "or a file; leave it out to use fetch.metadata_table from configs/data.yaml"
         )
 
 
