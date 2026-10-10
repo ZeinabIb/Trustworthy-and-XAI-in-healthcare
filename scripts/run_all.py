@@ -15,17 +15,24 @@ from mfsi_cxr.utils.config import resolve_profile
 
 SCRIPTS = Path(__file__).resolve().parent
 
-# (script, extra args). Each script also receives --profile.
-STEPS: list[tuple[str, list[str]]] = [
-    ("env_report.py", []),
-    ("00_preflight.py", ["--stage", "data"]),
+ALL = ("smoke", "pilot", "full")
+# (script, extra args, profiles it runs under). Each script except env_report also receives --profile.
+STEPS: list[tuple[str, list[str], tuple[str, ...]]] = [
+    ("env_report.py", [], ALL),
+    ("01_make_synthetic.py", [], ("smoke",)),
+    ("00_preflight.py", ["--stage", "data"], ALL),
+    ("10_audit_data.py", [], ALL),
+    ("11_build_index.py", [], ALL),
+    ("12_make_splits.py", [], ALL),
+    ("14_build_text_inputs.py", [], ALL),
 ]
 
 
 def main(argv: list[str] | None = None) -> int:
     args = base_parser(__doc__.splitlines()[0]).parse_args(argv)
     profile = resolve_profile(args.profile)
-    for script, extra in STEPS:
+    steps = [(s, extra) for s, extra, profiles in STEPS if profile in profiles]
+    for script, extra in steps:
         cmd = [sys.executable, str(SCRIPTS / script), *extra]
         if script != "env_report.py":
             cmd += ["--profile", profile]
@@ -33,7 +40,7 @@ def main(argv: list[str] | None = None) -> int:
         if subprocess.run(cmd).returncode != 0:
             print(f"run_all: {script} failed; stopping.")
             return 1
-    print(f"run_all ({profile}): all {len(STEPS)} steps passed")
+    print(f"run_all ({profile}): all {len(steps)} steps passed")
     return 0
 
 

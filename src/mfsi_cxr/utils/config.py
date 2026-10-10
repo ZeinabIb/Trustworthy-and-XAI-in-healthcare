@@ -22,6 +22,8 @@ DATA_ROOT_ENV = "MFSI_DATA_ROOT"
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CONFIG_DIR = REPO_ROOT / "configs"
+# Shared config files merged into base.yaml, in order, before the profile is applied.
+COMPONENT_FILES: tuple[str, ...] = ("data.yaml",)
 
 # Dotted keys a profile is allowed to override. Everything else must equal base.yaml.
 ALLOWED_PROFILE_KEYS: frozenset[str] = frozenset(
@@ -97,11 +99,22 @@ def check_profile_keys(base: dict[str, Any], merged: dict[str, Any]) -> None:
         raise ConfigError(f"profile overrides keys outside ALLOWED_PROFILE_KEYS: {sorted(bad)}")
 
 
+def load_shared(config_dir: Path | None = None) -> dict[str, Any]:
+    """base.yaml plus the component files (data.yaml, ...): everything every profile shares."""
+    cdir = config_dir or CONFIG_DIR
+    shared = _read_yaml(cdir / "base.yaml")
+    for component in COMPONENT_FILES:
+        path = cdir / component
+        if path.exists():
+            shared = deep_merge(shared, _read_yaml(path))
+    return shared
+
+
 def load_config(profile: str | None = None, config_dir: Path | None = None) -> dict[str, Any]:
     """Merged config for a profile, with `profile` set and `data.root` overridable by env."""
     name = resolve_profile(profile)
     cdir = config_dir or CONFIG_DIR
-    base = _read_yaml(cdir / "base.yaml")
+    base = load_shared(cdir)
     merged = deep_merge(base, _read_yaml(cdir / "profiles" / f"{name}.yaml"))
     check_profile_keys(base, merged)
     env_root = os.environ.get(DATA_ROOT_ENV)

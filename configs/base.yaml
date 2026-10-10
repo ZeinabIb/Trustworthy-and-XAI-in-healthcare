@@ -33,6 +33,15 @@ arbiter:
 eval:
   bootstrap_B: 2000
 
+synthetic:                    # scripts/01_make_synthetic.py (smoke only)
+  seed: 0
+  n_patients: 30
+  max_studies: 4
+  max_images: 3
+  radiologist_every: 10       # every 10th patient sits in the dataset's 'valid' split
+  p_no_pre_read: 0.2
+  image_size: 32
+
 preflight:
   min_free_disk_gb: 20
   min_free_gpu_gb: 4

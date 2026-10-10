@@ -22,3 +22,31 @@ def smoke_cfg(tmp_path: Path) -> dict[str, Any]:
     cfg["paths"]["artifacts_root"] = str(tmp_path / "artifacts")
     cfg["paths"]["outputs_root"] = str(tmp_path / "outputs")
     return cfg
+
+
+@pytest.fixture
+def synthetic_cfg(smoke_cfg: dict[str, Any], tmp_path: Path) -> dict[str, Any]:
+    """Smoke config whose data root holds a freshly generated synthetic raw dataset."""
+    from mfsi_cxr.data.synthetic import make_synthetic_dataset
+
+    smoke_cfg["data"]["root"] = str(tmp_path / "raw")
+    make_synthetic_dataset(Path(smoke_cfg["data"]["root"]), smoke_cfg)
+    return smoke_cfg
+
+
+@pytest.fixture
+def built(synthetic_cfg: dict[str, Any]) -> dict[str, Any]:
+    """Index (all synthetic patients), labels and a TextBuilder."""
+    from mfsi_cxr.data.index import assign_study_rank, build_image_table, finalise_index
+    from mfsi_cxr.data.labels import labels_per_study, read_label_records
+    from mfsi_cxr.data.schema import read_metadata, structural_columns
+    from mfsi_cxr.data.text_inputs import TextBuilder
+
+    cfg = synthetic_cfg
+    root = Path(cfg["data"]["root"])
+    images = assign_study_rank(build_image_table(read_metadata(root, cfg, structural_columns(cfg)), cfg))
+    index = finalise_index(images)
+    labels = labels_per_study(read_label_records(root / cfg["data"]["labels_file"]), index,
+                              cfg["data"]["columns"]["image_path"])
+    return {"cfg": cfg, "root": root, "images": images, "index": index, "labels": labels,
+            "builder": TextBuilder.from_root(root, index, cfg)}

@@ -1,0 +1,39 @@
+# Data schema and leakage allowlist. Merged into base.yaml; profiles may not override any of it.
+#
+# Column names are PROVISIONAL until scripts/10_audit_data.py has run on the real metadata table
+# (Phase 1.1). The text-section classes are PENDING Zeinab's approval (STOP-AND-ASK).
+
+data:
+  metadata_file: df_chexpert_plus_240401.csv   # csv or parquet, relative to data.root
+  labels_file: report_fixed.json               # PENDING: report_fixed vs impression_fixed (question 4)
+  columns:
+    image_path: path_to_image                  # relative path, e.g. train/patient00001/study1/view1_frontal.png
+    patient_id: deid_patient_id
+    study_order: patient_report_date_order     # PENDING: confirm it is chronological (question 6)
+    view: frontal_lateral
+    source_split: split
+  frontal_value: Frontal
+  radiologist_split_value: valid               # dataset split value marking the radiologist-read subset
+  radiologist_policy: holdout                  # PENDING (question 10): holdout = never in train/val/test
+  pilot_min_pos_per_finding: 5                 # stratified pilot sampling target per finding
+
+  # Allowlist. A column that is not listed here is never read as text. The loader also refuses to
+  # start if any column in FORBIDDEN_INDEX_ALWAYS (text_inputs.py) appears under allowed_index.
+  text_sections:
+    allowed_index:            # index (current) study: pre-read text only
+      - section_clinical_history
+      - section_history
+      - section_technique
+    allowed_prior:            # studies strictly earlier than the index study: the full report
+      - section_clinical_history
+      - section_history
+      - section_technique
+      - section_comparison
+      - section_procedure_comments
+      - section_narrative
+      - section_findings
+      - section_impression
+      - section_end_of_impression
+      - section_summary
+  demographics: [age, sex]    # added to the index text; race is never a model input
+  no_pre_read_token: "[NO PRE-READ TEXT]"

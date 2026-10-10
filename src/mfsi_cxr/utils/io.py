@@ -11,6 +11,8 @@ import json
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+import pandas as pd
+
 from mfsi_cxr.utils.config import REPO_ROOT
 from mfsi_cxr.utils.logging import run_metadata
 
@@ -66,6 +68,20 @@ def check_artifact(path: Path, cfg: dict[str, Any]) -> dict[str, Any]:
             f"{path} was written by profile {meta.get('profile')!r}, current profile is {cfg['profile']!r}"
         )
     return meta
+
+
+def write_table(df: pd.DataFrame, path: Path, cfg: dict[str, Any], seed: int | None = None) -> Path:
+    """Write a parquet artifact and its sidecar."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(path, index=False)
+    write_meta(path, cfg, seed, n_rows=len(df))
+    return path
+
+
+def read_table(path: Path, cfg: dict[str, Any]) -> pd.DataFrame:
+    """Read a parquet artifact after the profile guard."""
+    check_artifact(path, cfg)
+    return pd.read_parquet(path)
 
 
 def to_data_relative(path: Path, root: Path) -> str:
