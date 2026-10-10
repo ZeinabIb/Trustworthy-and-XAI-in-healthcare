@@ -4,7 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from mfsi_cxr.data.fetch import UnsafeDestinationError, check_destination, check_refs
+from mfsi_cxr.data.fetch import (
+    UnsafeDestinationError,
+    check_destination,
+    check_refs,
+    merge_parquet_parts,
+)
 from mfsi_cxr.utils.config import REPO_ROOT
 
 
@@ -35,6 +40,20 @@ def test_labels_ref_as_metadata_ref_is_refused() -> None:
         check_refs(ref, ref + "/findings_fixed.json")
     check_refs(ref, None)
     check_refs(ref, "aimi.chexpert_plus:5yyj:v1_0.df_chexpert_plus_240401:bavj")
+
+
+def test_merge_parquet_parts(tmp_path: Path) -> None:
+    import pandas as pd
+
+    parts = []
+    for i in range(3):
+        p = tmp_path / f"{i:06d}.parquet"
+        pd.DataFrame({"path_to_image": [f"img{i}a", f"img{i}b"], "age": [i, i]}).to_parquet(p)
+        parts.append(p)
+    out = merge_parquet_parts(list(reversed(parts)), tmp_path / "meta.parquet")
+    df = pd.read_parquet(out)
+    assert len(df) == 6 and df["path_to_image"].tolist()[:2] == ["img0a", "img0b"]
+    assert not (tmp_path / "meta.parquet.tmp").exists()
 
 
 def test_plain_local_folder_is_accepted(tmp_path: Path) -> None:

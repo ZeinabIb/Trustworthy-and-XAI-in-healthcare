@@ -54,17 +54,39 @@ def fetch_label_files(table_ref: str, files: list[str], dest: Path) -> list[Path
 
 
 def fetch_metadata_table(table_ref: str, dest_file: Path) -> Path:
-    import pyarrow.parquet as pq
+    """Server-side parquet export, then file download (byte-range retries), then merge to one file.
+
+    A streamed read (`to_arrow_table`) expires after ~30 min, too short on a slow connection.
+    """
+    import shutil
+
     import redivis
 
     if dest_file.exists():
         return dest_file
     if dest_file.suffix != ".parquet":
         raise ValueError(f"metadata is saved as parquet; got {dest_file.name}")
-    table = redivis.table(table_ref).to_arrow_table()
+    staging = dest_file.parent / f"_export_{dest_file.stem}"
+    if staging.exists():
+        shutil.rmtree(staging)  # an export is only reusable within one run
+    staging.mkdir(parents=True)
+    parts = redivis.table(table_ref).download(str(staging), format="parquet")
+    merge_parquet_parts([Path(p) for p in parts], dest_file)
+    shutil.rmtree(staging)
+    return dest_file
+
+
+def merge_parquet_parts(parts: list[Path], dest_file: Path) -> Path:
+    """Merge export parts into `dest_file` atomically (temp file, then rename)."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    if not parts:
+        raise ValueError("export produced no files")
+    table = pa.concat_tables([pq.read_table(p) for p in sorted(parts)], promote_options="default")
     tmp = dest_file.with_name(dest_file.name + ".tmp")
     pq.write_table(table, tmp)
-    tmp.replace(dest_file)  # a killed download never leaves a partial file under the final name
+    tmp.replace(dest_file)  # a killed run never leaves a partial file under the final name
     return dest_file
 
 
