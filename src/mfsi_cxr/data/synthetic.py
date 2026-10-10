@@ -90,7 +90,11 @@ def make_synthetic_dataset(root: Path, cfg: dict[str, Any]) -> dict[str, Path]:
 
     root.mkdir(parents=True, exist_ok=True)
     meta_path = root / cfg["data"]["metadata_file"]
-    pd.DataFrame(rows).to_csv(meta_path, index=False)
+    meta = pd.DataFrame(rows)
+    if meta_path.suffix == ".parquet":
+        meta.to_parquet(meta_path, index=False)
+    else:
+        meta.to_csv(meta_path, index=False)
     labels_path = root / cfg["data"]["labels_file"]
     with labels_path.open("w", encoding="utf-8") as f:
         for rec in label_records:

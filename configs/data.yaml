@@ -4,7 +4,7 @@
 # (Phase 1.1). The text-section classes are PENDING Zeinab's approval (STOP-AND-ASK).
 
 data:
-  metadata_file: df_chexpert_plus_240401.csv   # csv or parquet, relative to data.root
+  metadata_file: df_chexpert_plus_240401.parquet   # relative to data.root (csv also readable)
   labels_file: report_fixed.json               # PENDING: report_fixed vs impression_fixed (question 4)
   columns:
     image_path: path_to_image                  # relative path, e.g. train/patient00001/study1/view1_frontal.png
@@ -37,3 +37,9 @@ data:
       - section_summary
   demographics: [age, sex]    # added to the index text; race is never a model input
   no_pre_read_token: "[NO PRE-READ TEXT]"
+
+# scripts/09_fetch_raw.py (run by Zeinab). Table refs are copied from the Redivis table pages.
+fetch:
+  labels_table: aimi.chexpert_plus:5yyj:v1_0.chexpert_labels:pmec
+  label_files: [findings_fixed.json, impression_fixed.json, report_fixed.json]
+  metadata_table: null   # PENDING: copy the ref of df_chexpert_plus_240401 from its Redivis page
