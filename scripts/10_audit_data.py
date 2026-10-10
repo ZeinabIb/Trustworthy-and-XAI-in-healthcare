@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import sys
 
-from mfsi_cxr.data.schema import audit, audit_markdown, read_metadata
+from mfsi_cxr.data.schema import audit, audit_markdown, metadata_path, read_metadata
 from mfsi_cxr.utils.cli import base_parser, config_from_args
 from mfsi_cxr.utils.config import data_root
 from mfsi_cxr.utils.io import output_dir, write_meta
@@ -15,6 +15,10 @@ from mfsi_cxr.utils.io import output_dir, write_meta
 
 def main(argv: list[str] | None = None) -> int:
     cfg = config_from_args(base_parser(__doc__.splitlines()[0]).parse_args(argv))
+    path = metadata_path(data_root(cfg), cfg)
+    if not path.exists():
+        print(f"10_audit_data: {path} not found; run scripts/09_fetch_raw.py first")
+        return 1
     meta = read_metadata(data_root(cfg), cfg)
     table = audit(meta, cfg)
     out = output_dir(cfg) / "DATA_SCHEMA.md"
