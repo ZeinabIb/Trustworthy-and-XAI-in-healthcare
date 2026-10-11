@@ -19,9 +19,9 @@ def main(argv: list[str] | None = None) -> int:
     for key, value in rep.as_dict().items():
         print(f"{key:24s} {value}")
     if rep.n_leaks:
-        print(f"15_check_leakage: {rep.n_leaks} leak(s) found")
+        print(f"16_check_leakage: {rep.n_leaks} leak(s) found")
         return 1
-    print("15_check_leakage: no leaks")
+    print("16_check_leakage: no leaks")
     return 0
 
 

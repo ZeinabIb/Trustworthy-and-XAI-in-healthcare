@@ -1,0 +1,47 @@
+# Mapping of RadGraph facts to the 14 findings (Phase 1.6), so the arbiter can be given the facts relevant
+# to a flagged finding. Merged into the shared config; profiles may not override it.
+#
+# A rule matches an Observation entity when one of its `observation` words is a word of the entity's tokens
+# and, if the rule lists `anatomy`, one of those words is a word of the entity's tokens or of the anatomy it
+# is `located_at`. Words are case-folded. A fact may map to several findings or to none ("other context").
+# No Finding is never mapped. PENDING Zeinab's clinical review (a first, simple dictionary).
+
+finding_synonyms:
+  Enlarged Cardiomediastinum:
+    - observation: [widening, widened, enlarged, enlargement, prominent, prominence]
+      anatomy: [mediastinum, mediastinal, cardiomediastinal, cardiomediastinum]
+  Cardiomegaly:
+    - observation: [cardiomegaly]
+    - observation: [enlarged, enlargement]
+      anatomy: [heart, cardiac]
+  Lung Opacity:
+    - observation: [opacity, opacities, opacification, opacified, density, densities, haziness, hazy]
+  Lung Lesion:
+    - observation: [nodule, nodules, nodular, mass, masses, lesion, lesions]
+  Edema:
+    - observation: [edema, oedema]
+    - observation: [congestion, congested]
+      anatomy: [vascular, pulmonary, venous, interstitial]
+  Consolidation:
+    - observation: [consolidation, consolidations, consolidative, consolidated]
+  Pneumonia:
+    - observation: [pneumonia, pneumonias, bronchopneumonia]
+  Atelectasis:
+    - observation: [atelectasis, atelectatic, atelectases]
+    - observation: [collapse, collapsed]
+      anatomy: [lobe, lobar, lung, segmental]
+  Pneumothorax:
+    - observation: [pneumothorax, pneumothoraces, hydropneumothorax]
+  Pleural Effusion:
+    - observation: [effusion, effusions, hydropneumothorax]
+      anatomy: [pleural, pleura, costophrenic]
+    - observation: [effusion, effusions]
+  Pleural Other:
+    - observation: [thickening, scarring, plaque, plaques, calcification, calcifications]
+      anatomy: [pleural, pleura]
+    - observation: [fibrothorax]
+  Fracture:
+    - observation: [fracture, fractures, fractured]
+  Support Devices:
+    - observation: [tube, tubes, catheter, catheters, line, lines, pacemaker, wire, wires, stent, stents,
+                    port, device, devices, drain, drains, valve, sternotomy, picc, icd, clip, clips]

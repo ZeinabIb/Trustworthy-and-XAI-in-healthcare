@@ -36,13 +36,16 @@ def synthetic_cfg(smoke_cfg: dict[str, Any], tmp_path: Path) -> dict[str, Any]:
 
 @pytest.fixture
 def smoke_artifacts(synthetic_cfg: dict[str, Any]) -> dict[str, Any]:
-    """All Phase 1 artifacts built in a temp dir from synthetic data (index, labels, splits, text, cache)."""
+    """All Phase 1 artifacts built in a temp dir from synthetic data (index, labels, splits, text, RadGraph
+    facts, image cache)."""
     from mfsi_cxr.data.images import build_image_cache
     from mfsi_cxr.data.pipeline import build_index, build_splits, build_text_inputs
+    from mfsi_cxr.data.radgraph import build_radgraph_facts
 
     build_index(synthetic_cfg)
     build_splits(synthetic_cfg)
     build_text_inputs(synthetic_cfg)
+    build_radgraph_facts(synthetic_cfg)
     build_image_cache(synthetic_cfg)
     return synthetic_cfg
 

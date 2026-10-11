@@ -1,9 +1,9 @@
 """Canary leakage test (mandatory, Phase 1.5). Must stay green on every data-loader change.
 
 Every forbidden section of every synthetic study holds a unique canary naming its study. The index
-text may never contain a canary of the index study (or of any study); prior texts may contain canaries
-of earlier studies only. Pending: RadGraph facts (Phase 1.6, format not yet inspected) and the
-tokenised model input (Phase 2) must be added to this test when they exist.
+text may never contain a canary of the index study (or of any study); prior texts and RadGraph facts may
+contain canaries of earlier studies only. Pending: the tokenised model input (Phase 2) must be added to
+this test when it exists.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from typing import Any
 import pandas as pd
 import pytest
 
-from mfsi_cxr.data.synthetic import CANARY_SECTIONS, canary
+from mfsi_cxr.data.synthetic import CANARY_SECTIONS, canary, study_tag
 from mfsi_cxr.data.text_inputs import FORBIDDEN_INDEX_ALWAYS, LeakageConfigError, TextBuilder
 
 ALLOWED_PRIOR_CANARIES = ("section_findings", "section_impression", "section_narrative")
@@ -113,3 +113,53 @@ def test_priors_truncated_most_recent_first(built: dict[str, Any]) -> None:
         assert s.n_priors <= 1
         if r.study_rank > 0:
             assert index.loc[s.prior_study_ids[0], "study_rank"] == r.study_rank - 1
+
+
+@pytest.fixture
+def facts(built: dict[str, Any]) -> pd.DataFrame:
+    """RadGraph facts of every study that is a prior of some synthetic sample."""
+    from mfsi_cxr.data.radgraph import extract_facts
+    from mfsi_cxr.data.schema import read_metadata
+    from mfsi_cxr.data.text_inputs import IMAGE_PATH
+
+    cfg = built["cfg"]
+    path_col = cfg["data"]["columns"]["image_path"]
+    meta = read_metadata(built["root"], cfg, [path_col, *cfg["radgraph"]["files"]])
+    priors = {p for s in _samples(built) for p in s.prior_study_ids}
+    table, _ = extract_facts(meta.rename(columns={path_col: IMAGE_PATH}), built["index"], priors,
+                             built["root"], cfg)
+    return table
+
+
+def _sample_facts_text(facts: pd.DataFrame, sample) -> str:
+    from mfsi_cxr.data.radgraph import facts_for_sample
+
+    chosen = facts_for_sample(facts, sample.prior_study_ids)
+    return " ".join(" ".join(chosen[c].astype(str)) for c in chosen.columns)
+
+
+def test_radgraph_facts_hold_no_index_or_later_canary(built: dict[str, Any], facts: pd.DataFrame) -> None:
+    index = built["index"].drop_duplicates("study_id").set_index("study_id")
+    for s in _samples(built):
+        rank = index.loc[s.index_study_id, "study_rank"]
+        own_and_later = index[(index.patient_id == s.patient_id) & (index.study_rank >= rank)].index
+        text = _sample_facts_text(facts, s)
+        for sid in own_and_later:
+            assert study_tag(sid) not in text, (s.index_study_id, sid)
+
+
+def test_radgraph_prior_canaries_do_appear(built: dict[str, Any], facts: pd.DataFrame) -> None:
+    """Guards against a trivially passing test: prior findings/impression facts ARE available."""
+    with_priors = [s for s in _samples(built) if s.n_priors]
+    assert with_priors
+    for s in with_priors:
+        text = _sample_facts_text(facts, s)
+        for prior in s.prior_study_ids:
+            for section in built["cfg"]["radgraph"]["files"]:
+                assert canary(section, prior) in text
+
+
+def test_radgraph_never_holds_facts_of_a_last_study(built: dict[str, Any], facts: pd.DataFrame) -> None:
+    """A patient's last study is no one's prior, so its facts are never extracted at all."""
+    last = built["index"].sort_values("study_rank").groupby("patient_id")["study_id"].last()
+    assert not set(facts["study_id"]) & set(last)

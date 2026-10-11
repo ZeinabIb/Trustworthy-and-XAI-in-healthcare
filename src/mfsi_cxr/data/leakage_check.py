@@ -1,8 +1,8 @@
 """Real-data leakage audit (Phase 1.5); complements the synthetic canary test (tests/test_leakage.py).
 
 This is an AUDIT, not part of the text branch: it reads every report column of the raw metadata so it
-can check that the built text inputs never contain the index study's forbidden text or text of later
-studies. Nothing it reads is written out or passed to a model; it returns counts only.
+can check that the built text inputs and RadGraph facts never contain the index study's forbidden text or
+text of later studies. Nothing it reads is written out or passed to a model; it returns counts only.
 
 A snippet is a sentence-like piece of a report (split at . ! ? ; and newlines), case-folded with
 whitespace collapsed, at least `data.leakage_check.min_snippet_chars` long. A hit is a snippet found in a
@@ -25,11 +25,16 @@ from mfsi_cxr.data.text_inputs import FORBIDDEN_INDEX_ALWAYS, IMAGE_PATH, TextBu
 
 _SPLIT = re.compile(r"[.!?;\n]+")
 _SPACE = re.compile(r"\s+")
+_NON_ALNUM = re.compile(r"[^0-9a-z]")
 _COPY_SEP = "\x00"  # never inside a snippet, so a snippet cannot span two report copies
 
 
 def normalise(text: str) -> str:
     return _SPACE.sub(" ", text).strip().casefold()
+
+
+def _alnum(text: str) -> str:
+    return _NON_ALNUM.sub("", text.casefold())
 
 
 def snippets(text: str, min_chars: int) -> set[str]:
@@ -88,6 +93,7 @@ class LeakageInputs:
     prior_texts: dict[str, tuple[str, ...]]    # index study id -> prior texts from a fresh build
     studies: dict[str, StudyText]
     report_cols: list[str]
+    facts: pd.DataFrame                        # the stored radgraph_facts.parquet
 
 
 @dataclass
@@ -104,9 +110,13 @@ class LeakageReport:
     prior_too_many: int = 0          # more priors than data.max_priors
     prior_leak: int = 0              # prior texts hold index/later text absent from all earlier studies
     prior_boilerplate_hits: int = 0  # index/later snippets that also occur in earlier studies
+    radgraph_not_prior: int = 0      # facts of a study that is no sample's prior
+    radgraph_foreign_fact: int = 0   # facts whose text is not part of their own study's report (bad join)
+    radgraph_leak: int = 0           # a sample's fact holds index/later text absent from earlier studies
 
     LEAK_FIELDS = ("index_text_mismatch", "index_forbidden_tag", "index_forbidden_leak",
-                   "prior_not_earlier", "prior_too_many", "prior_leak")
+                   "prior_not_earlier", "prior_too_many", "prior_leak", "radgraph_not_prior",
+                   "radgraph_foreign_fact", "radgraph_leak")
 
     @property
     def n_leaks(self) -> int:
@@ -124,6 +134,7 @@ def load_inputs(cfg: dict[str, Any]) -> LeakageInputs:
     root, adir = data_root(cfg), artifact_dir(cfg)
     index = read_table(adir / "index.parquet", cfg)
     text_inputs = read_table(adir / "text_inputs.parquet", cfg)
+    facts = read_table(adir / "radgraph_facts.parquet", cfg)
     builder = TextBuilder.from_root(root, index, cfg)
     built = {r.study_id: builder.build(r.patient_id, r.study_id) for r in text_inputs.itertuples()}
 
@@ -137,6 +148,7 @@ def load_inputs(cfg: dict[str, Any]) -> LeakageInputs:
         prior_texts={sid: s.prior_texts for sid, s in built.items()},
         studies=study_texts(meta, index, cfg),
         report_cols=cols,
+        facts=facts,
     )
 
 
@@ -151,7 +163,17 @@ def check_leakage(inp: LeakageInputs, cfg: dict[str, Any]) -> LeakageReport:
     patient_of: Mapping[str, str] = studies.set_index("study_id")["patient_id"].to_dict()
     by_patient = {pid: g["study_id"].tolist() for pid, g in studies.groupby("patient_id")}
 
+    all_priors = {p for ids in inp.text_inputs["prior_study_ids"] for p in ids}
+    fact_studies = set(inp.facts["study_id"])
+    # Each fact is checked on its own: joining facts would glue words of different entities into
+    # sentences that occur in no report (43 such false hits on the pilot, 2026-10-11).
+    fact_text = {s: [normalise(t) for t in g] for s, g in inp.facts.groupby("study_id")["entity_text"]}
+
     rep = LeakageReport()
+    rep.radgraph_not_prior = len(fact_studies - all_priors)
+    for s, texts in fact_text.items():
+        own = _alnum(inp.studies.get(s, empty).full)
+        rep.radgraph_foreign_fact += sum(_alnum(t) not in own for t in texts)
     for row in inp.text_inputs.itertuples():
         sid, pid, r = row.study_id, row.patient_id, rank[row.study_id]
         own = inp.studies.get(sid, empty)
@@ -177,7 +199,8 @@ def check_leakage(inp: LeakageInputs, cfg: dict[str, Any]) -> LeakageReport:
         if len(priors) > max_priors:
             rep.prior_too_many += 1
         hay = normalise(" ".join(inp.prior_texts.get(sid, ())))
-        if not hay:
+        sample_facts = [t for p in priors for t in fact_text.get(p, ())]
+        if not hay and not sample_facts:
             continue
         own_patient = by_patient[pid]
         needles: set[str] = set()
@@ -185,13 +208,12 @@ def check_leakage(inp: LeakageInputs, cfg: dict[str, Any]) -> LeakageReport:
             if rank[s] >= r:
                 st = inp.studies.get(s, empty)
                 needles |= st.allowed_index | st.forbidden_index
-        hits = {n for n in needles if n in hay}
-        if not hits:
-            continue
         earlier = _COPY_SEP.join(inp.studies.get(s, empty).full for s in own_patient if rank[s] < r)
+        hits = {n for n in needles if n in hay}
         leaks = {h for h in hits if h not in earlier}
         rep.prior_boilerplate_hits += len(hits) - len(leaks)
         rep.prior_leak += bool(leaks)
+        rep.radgraph_leak += any(n in t and n not in earlier for n in needles for t in sample_facts)
     return rep
 
 

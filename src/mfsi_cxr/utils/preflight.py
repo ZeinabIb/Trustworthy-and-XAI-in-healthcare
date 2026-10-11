@@ -19,7 +19,9 @@ from mfsi_cxr.utils.io import ArtifactProfileError, artifact_dir, check_artifact
 
 STAGES = ("data", "train")
 # Phase 1 artifacts that training depends on (file names fixed by 00_OVERVIEW.md).
-TRAIN_INPUT_ARTIFACTS = ("index.parquet", "labels.parquet", "splits.parquet", "text_inputs.parquet")
+TRAIN_INPUT_ARTIFACTS = (
+    "index.parquet", "labels.parquet", "splits.parquet", "text_inputs.parquet", "radgraph_facts.parquet",
+)
 CANARY_TEST = REPO_ROOT / "tests" / "test_leakage.py"
 GB = 1024**3
 

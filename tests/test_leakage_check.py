@@ -1,4 +1,4 @@
-"""Real-data leakage audit (scripts/15_check_leakage.py) on synthetic artifacts.
+"""Real-data leakage audit (scripts/16_check_leakage.py) on synthetic artifacts.
 
 Clean inputs must report no leak; each kind of leak, injected on purpose, must be caught; shared
 boilerplate must be counted as such and not as a leak.
@@ -11,6 +11,7 @@ import dataclasses
 import json
 from typing import Any
 
+import pandas as pd
 import pytest
 
 from mfsi_cxr.data.leakage_check import (
@@ -147,3 +148,38 @@ def test_run_writes_counts_with_sidecar(smoke_artifacts: dict[str, Any]) -> None
 def test_stored_prior_refs_match_n_priors(inputs: LeakageInputs) -> None:
     assert all(len(p) == n for p, n in zip(inputs.text_inputs["prior_study_ids"],
                                            inputs.text_inputs["n_priors"], strict=True))
+
+
+def test_later_canary_in_radgraph_facts_is_caught(inputs: LeakageInputs, smoke_artifacts: dict) -> None:
+    inp = _tampered(inputs)
+    row = _row_with_priors(inp)
+    prior = inp.text_inputs.at[row, "prior_study_ids"][0]
+    leaked = canary("section_impression", inp.text_inputs.at[row, "study_id"])
+    facts = inp.facts.copy()
+    facts.loc[facts.index[facts["study_id"] == prior][0], "entity_text"] = leaked
+    inp.facts = facts
+    rep = check_leakage(inp, smoke_artifacts)
+    assert rep.radgraph_leak == 1 and rep.radgraph_foreign_fact == 1
+
+
+def test_words_of_separate_facts_do_not_form_a_leak(inputs: LeakageInputs, smoke_artifacts: dict) -> None:
+    """A later sentence split over two facts of a prior (each fine on its own) is not a leak."""
+    inp = _tampered(inputs)
+    row = _row_with_priors(inp)
+    prior = inp.text_inputs.at[row, "prior_study_ids"][0]
+    later = normalise(canary("section_impression", inp.text_inputs.at[row, "study_id"]))
+    half = len(later) // 2
+    facts = inp.facts.copy()
+    at = facts.index[facts["study_id"] == prior][:2]
+    facts.loc[at, "entity_text"] = [later[:half], later[half:]]
+    inp.facts = facts
+    assert check_leakage(inp, smoke_artifacts).radgraph_leak == 0
+
+
+def test_facts_of_a_non_prior_study_are_caught(inputs: LeakageInputs, smoke_artifacts: dict) -> None:
+    inp = _tampered(inputs)
+    priors = {p for ids in inp.text_inputs["prior_study_ids"] for p in ids}
+    outsider = next(s for s in inp.index["study_id"].unique() if s not in priors)
+    extra = inp.facts.iloc[[0]].assign(study_id=outsider)
+    inp.facts = pd.concat([inp.facts, extra], ignore_index=True)
+    assert check_leakage(inp, smoke_artifacts).radgraph_not_prior == 1

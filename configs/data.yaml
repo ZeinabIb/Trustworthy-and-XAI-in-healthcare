@@ -42,8 +42,15 @@ data:
       - section_summary
   demographics: [age, sex]    # added to the index text; race is never a model input
   no_pre_read_token: "[NO PRE-READ TEXT]"
-  leakage_check:              # scripts/15_check_leakage.py (audit only, counts only)
+  leakage_check:              # scripts/16_check_leakage.py (audit only, counts only)
     min_snippet_chars: 20     # shorter report pieces ("none", "normal") are too generic to signal a leak
+
+# RadGraph XL (Phase 1.6). It was run per section, on these two sections only (inspected 2026-10-11): both are
+# forbidden for the index study, so samples get facts of their PRIOR studies only (data/radgraph.py).
+radgraph:
+  files:                      # metadata section column -> file under data.radgraph_dir
+    section_findings: section_findings.json
+    section_impression: section_impression.json
 
 # scripts/09_fetch_raw.py (run by Zeinab). Table refs are copied from the Redivis table pages.
 fetch:
@@ -51,6 +58,5 @@ fetch:
   label_files: [findings_fixed.json, impression_fixed.json, report_fixed.json]
   metadata_table: aimi.chexpert_plus:5yyj:v1_0.df_chexpert_plus_240401:bavj   # 223,462 rows, 27 vars
   radgraph_table: aimi.chexpert_plus:5yyj:v1_0.radgraph_xl_annotations:8wdv   # 09_fetch_raw --radgraph
-  radgraph_files: [section_findings.json, section_impression.json]   # RadGraph XL was run per section
   png_train_table: aimi.chexpert_plus:5yyj:v1_0.png_train:s6cj
   png_valid_table: aimi.chexpert_plus:5yyj:v1_0.png_valid:41v9

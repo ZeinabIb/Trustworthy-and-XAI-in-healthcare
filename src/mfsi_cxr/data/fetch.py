@@ -131,8 +131,7 @@ def fetch_all(cfg: dict[str, Any], dest: Path, labels_ref: str, metadata_ref: st
 def fetch_radgraph(cfg: dict[str, Any], dest: Path) -> list[Path]:
     """RadGraph XL annotation files into dest/<data.radgraph_dir>/."""
     dest = check_destination(dest)
-    fetch = cfg["fetch"]
-    return fetch_table_files(fetch["radgraph_table"], list(fetch["radgraph_files"]),
+    return fetch_table_files(cfg["fetch"]["radgraph_table"], list(cfg["radgraph"]["files"].values()),
                              dest / cfg["data"]["radgraph_dir"])
 
 

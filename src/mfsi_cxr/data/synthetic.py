@@ -29,6 +29,9 @@ CANARY_SECTIONS: tuple[str, ...] = (
     "section_new_unreviewed",
 )
 PRE_READ_SECTIONS: tuple[str, ...] = ("section_clinical_history", "section_history", "section_technique")
+# Appended to the sections RadGraph was run on, so the synthetic RadGraph entities ('effusion' located_at
+# 'pleural') occur in the report text, as real entities do. Shorter than the leakage-check snippet length.
+RADGRAPH_PHRASE = "pleural effusion"
 # Probability of each label state when drawing synthetic labels: positive, negative, uncertain, blank.
 LABEL_STATE_PROBS = (0.3, 0.4, 0.1, 0.2)
 
@@ -67,6 +70,7 @@ def make_synthetic_dataset(root: Path, cfg: dict[str, Any]) -> dict[str, Path]:
             no_pre_read = rng.random() < syn["p_no_pre_read"]
             sections = {s: (None if no_pre_read else pre_read_text(s, study_id)) for s in PRE_READ_SECTIONS}
             sections |= {s: canary(s, study_id) for s in CANARY_SECTIONS}
+            sections |= {s: f"{sections[s]}. {RADGRAPH_PHRASE}" for s in cfg["radgraph"]["files"]}
             report = " ".join(v for v in sections.values() if v)
             labels = _draw_labels(rng)
             n_images = int(rng.integers(1, syn["max_images"] + 1))
@@ -102,7 +106,38 @@ def make_synthetic_dataset(root: Path, cfg: dict[str, Any]) -> dict[str, Path]:
         for rec in label_records:
             f.write(json.dumps(rec) + "\n")
     _write_images(root, [r[cols["image_path"]] for r in rows], syn["image_size"], rng)
-    return {"metadata": meta_path, "labels": labels_path}
+    radgraph = _write_radgraph(root, meta, cfg, np.random.default_rng(syn["seed"] + 1))
+    return {"metadata": meta_path, "labels": labels_path, **radgraph}
+
+
+def radgraph_entities(text: str) -> dict[str, dict[str, Any]]:
+    """Synthetic RadGraph entities for a section text: its canary (so it can be traced into the facts)
+    plus 'effusion' located_at 'pleural' (so the finding mapping is exercised)."""
+    return {
+        "1": {"tokens": text.removesuffix(f". {RADGRAPH_PHRASE}"), "label": "Observation::definitely present",
+              "start_ix": 0, "end_ix": 0, "relations": []},
+        "2": {"tokens": "effusion", "label": "Observation::uncertain", "start_ix": 1, "end_ix": 1,
+              "relations": [["located_at", "3"]]},
+        "3": {"tokens": "pleural", "label": "Anatomy::definitely present", "start_ix": 2, "end_ix": 2,
+              "relations": []},
+    }
+
+
+def _write_radgraph(root: Path, meta: pd.DataFrame, cfg: dict[str, Any],
+                    rng: np.random.Generator) -> dict[str, Path]:
+    """Like RadGraph XL: one record per distinct section text, no ids, shuffled, tokenised spacing."""
+    out = root / cfg["data"]["radgraph_dir"]
+    out.mkdir(parents=True, exist_ok=True)
+    written = {}
+    for section, name in cfg["radgraph"]["files"].items():
+        texts = sorted(set(meta[section].dropna()))
+        records = [{"0": {"text": t.replace("_", " _ "), "entities": radgraph_entities(t),
+                          "data_source": None, "data_split": "inference"}} for t in texts]
+        order = rng.permutation(len(records))
+        path = out / name
+        path.write_text(json.dumps([records[i] for i in order]), encoding="utf-8")
+        written[f"radgraph:{section}"] = path
+    return written
 
 
 def _draw_labels(rng: np.random.Generator) -> dict[str, float | None]:
