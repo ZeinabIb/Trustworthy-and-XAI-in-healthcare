@@ -1,0 +1,54 @@
+"""Fit MFSI on the frozen full-model exports (Phase 3): train for clouds, covariances and alpha; val for tau,
+y_hat thresholds and theta_R. Writes artifacts/<profile>/mfsi_params_seed{k}.json and
+outputs/<profile>/tables/mfsi_fit_seed{k}.csv (alpha, n_pos, target, ridge, cond per finding and modality).
+Prints the plan's STOP-AND-ASK conditions (tau at the grid boundary, poorly conditioned covariances).
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+
+import pandas as pd
+
+from mfsi_cxr.constants import FINDINGS
+from mfsi_cxr.mfsi.fit import MODALITIES, fit_mfsi, load_split, write_params
+from mfsi_cxr.utils.cli import base_parser, config_from_args
+from mfsi_cxr.utils.io import artifact_dir, check_artifact, output_dir, write_meta
+
+
+def main(argv: list[str] | None = None) -> int:
+    cfg = config_from_args(base_parser(__doc__.splitlines()[0]).parse_args(argv))
+    m = cfg["mfsi"]
+    for seed in cfg["train"]["seeds"]:
+        probe = artifact_dir(cfg) / f"probe_text_seed{seed}.json"
+        check_artifact(probe, cfg)
+        informative = json.loads(probe.read_text(encoding="utf-8"))["text_informative"]
+        train, val = load_split(cfg, "train", seed), load_split(cfg, "val", seed)
+        params = fit_mfsi(train, val, cfg, informative, seed)
+        write_params(params, artifact_dir(cfg) / f"mfsi_params_seed{seed}.json", cfg, seed)
+        rows = [{"modality": name, "finding": f, **params[f"cov_{name}"][f]}
+                for name, _ in MODALITIES for f in FINDINGS]
+        table = pd.DataFrame(rows)
+        out = output_dir(cfg) / "tables" / f"mfsi_fit_seed{seed}.csv"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        table.to_csv(out, index=False)
+        write_meta(out, cfg, seed)
+        print(table.pivot_table(index="finding", columns="modality", values=["n_pos", "alpha"]).to_string())
+        for name, _ in MODALITIES:
+            t = params[f"tau_{name}"]
+            note = "  STOP-AND-ASK: tau at the grid boundary" if t["at_grid_boundary"] else ""
+            print(f"seed {seed} tau_{name} = {t['tau']:.3g}  ECE {t['ece_before_tau1']:.4f} (tau=1) -> "
+                  f"{t['ece_after']:.4f}{note}")
+        bad = table[(table["cond_pos"] > m["cond_max"]) | (table["ridge_pos"] > 0)]
+        if len(bad):
+            print(f"STOP-AND-ASK candidates: {len(bad)} positive covariances needed a ridge or are poorly "
+                  f"conditioned: {sorted(set(bad['finding']))}")
+        strata = {s: [f for f in FINDINGS if params["strata"][f] == s]
+                  for s in set(params["strata"].values())}
+        print("strata:", strata)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
