@@ -1,0 +1,55 @@
+# Model and training recipe (Phase 2). Merged into base.yaml; profiles may override only the keys in
+# ALLOWED_PROFILE_KEYS (sizes and speeds, plus model.weights for smoke). Decisions: docs/DECISIONS.md.
+
+model:
+  weights: pretrained         # pretrained | tiny_random (smoke only: no downloads in tests)
+  emb_dim: 1024               # z_img and z_txt are exactly this size
+  attention_hidden: 128       # gated attention (Ilse et al. 2018) hidden size
+  dropout: 0.25               # before the head; off in eval/extraction
+  image_encoder:
+    xrv_weights: densenet121-res224-mimic_ch   # MIMIC-CXR only; never a CheXpert-trained checkpoint
+    xrv_version: 1.5.5
+    sha256: 23b13a04459684ffa41247d068207a7657b4e1b4dec2b02431f5026bd75b1189
+    feature_dim: 1024
+    unfreeze: [denseblock4, norm5]             # trainable after the warm-up
+  text_encoder:
+    repo: microsoft/BiomedVLP-CXR-BERT-specialized
+    revision: 5157bdba1437a3aed316dacb1a5b68edf96b9902   # loaded as plain BertModel (no remote code)
+    feature_dim: 768          # [CLS] of the last layer
+    max_len_index: 256
+    max_len_prior: 512
+    unfreeze_layers: 2        # last encoder layers trainable after the warm-up
+  tiny:                       # tiny_random encoders (smoke/tests)
+    image_channels: 8
+    text_hidden: 32
+    text_vocab: 4096
+
+image:
+  channels: 1                 # XRV checkpoints take one channel
+  value_range: [-1024, 1024]  # uint8 [0, 255] mapped linearly to this range (XRV convention)
+
+train:
+  lr: 1.0e-4                  # MIL modules and head
+  lr_backbone: 1.0e-5         # unfrozen encoder blocks
+  weight_decay: 1.0e-4
+  warmup_epochs: 1            # encoders frozen for this many epochs
+  entropy_lambda: 0.01        # loss -= lambda * H(attention), both levels
+  pos_weight: false           # per-label BCE pos_weight from train prevalence
+  grad_clip: 1.0
+  early_stop_patience: 3
+  early_stop_findings: [Atelectasis, Cardiomegaly, Consolidation, Edema, Pleural Effusion]
+  branches: [full, image, text]
+
+masking_check:
+  n_samples: 200              # val samples
+  margin: 0.05                # a change of a probability by more than this counts
+
+probe:
+  text_cutoff: 0.60           # text informative if AUROC lower CI > cutoff (val; tunable on val only)
+  ci_level: 0.95
+  max_iter: 1000
+  C: 1.0
+
+sanity:
+  suspicious_auroc: 0.95      # text-only model above this on a common finding -> STOP and re-audit
+  common_findings: [Lung Opacity, Pleural Effusion, Support Devices, Atelectasis, Cardiomegaly]

@@ -64,13 +64,14 @@ def resize(arr: np.ndarray, size: int) -> np.ndarray:
     return np.asarray(Image.fromarray(arr).resize((size, size), Image.BILINEAR), dtype=np.uint8)
 
 
-def to_tensor(u8: np.ndarray, mean: list[float], std: list[float]) -> torch.Tensor:
-    """(..., H, W) uint8 -> (..., 3, H, W) float32, grayscale repeated to 3 channels and normalised."""
-    x = torch.from_numpy(np.ascontiguousarray(u8)).float().div_(255.0)
-    x = x.unsqueeze(-3).expand(*x.shape[:-2], 3, *x.shape[-2:])
-    m = torch.tensor(mean, dtype=torch.float32).view(3, 1, 1)
-    s = torch.tensor(std, dtype=torch.float32).view(3, 1, 1)
-    return (x - m) / s
+def to_tensor(u8: np.ndarray, channels: int, value_range: list[float]) -> torch.Tensor:
+    """(..., H, W) uint8 -> (..., C, H, W) float32, [0, 255] mapped linearly to value_range.
+
+    The XRV checkpoints take one channel in [-1024, 1024] (`image.channels`, `image.value_range`).
+    """
+    lo, hi = value_range
+    x = torch.from_numpy(np.ascontiguousarray(u8)).float().mul_((hi - lo) / 255.0).add_(lo)
+    return x.unsqueeze(-3).expand(*x.shape[:-2], channels, *x.shape[-2:]).contiguous()
 
 
 def select_study_images(index: pd.DataFrame, cfg: dict[str, Any]) -> pd.DataFrame:
@@ -130,10 +131,20 @@ class ImageCache:
     def __init__(self, cfg: dict[str, Any]) -> None:
         cdir = artifact_dir(cfg) / CACHE_DIR
         table = read_table(cdir / CACHE_TABLE, cfg)
-        self.array = np.load(cdir / CACHE_ARRAY, mmap_mode="r")
+        self.path = cdir / CACHE_ARRAY
+        self._array: np.ndarray | None = None
         if len(self.array) != len(table):
             raise RuntimeError("image cache array and index disagree; rerun 13_cache_images")
         self.rows = table.groupby("study_id", sort=False)["row"].apply(list).to_dict()
+
+    @property
+    def array(self) -> np.ndarray:
+        if self._array is None:  # opened lazily, so DataLoader workers each map the file themselves
+            self._array = np.load(self.path, mmap_mode="r")
+        return self._array
+
+    def __getstate__(self) -> dict[str, Any]:
+        return {**self.__dict__, "_array": None}  # never pickle (copy) the whole cache into workers
 
     def study(self, study_id: str) -> np.ndarray:
         return np.asarray(self.array[self.rows.get(study_id, [])])

@@ -39,10 +39,11 @@ def test_dicom_not_silently_accepted(tmp_path: Path) -> None:
 
 def test_to_tensor() -> None:
     u8 = np.array([[[0, 255], [255, 0]]], dtype=np.uint8)  # (1, 2, 2)
-    x = to_tensor(u8, [0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
-    assert x.shape == (1, 3, 2, 2) and x.dtype == torch.float32
-    assert torch.allclose(x[0, 0], torch.tensor([[-1.0, 1.0], [1.0, -1.0]]))
-    assert torch.equal(x[0, 0], x[0, 2])
+    x = to_tensor(u8, 1, [-1024, 1024])
+    assert x.shape == (1, 1, 2, 2) and x.dtype == torch.float32
+    assert torch.allclose(x[0, 0], torch.tensor([[-1024.0, 1024.0], [1024.0, -1024.0]]))
+    x3 = to_tensor(u8, 3, [-1.0, 1.0])
+    assert x3.shape == (1, 3, 2, 2) and torch.equal(x3[0, 0], x3[0, 2])
 
 
 def _index(views: list[tuple[str, str]]) -> pd.DataFrame:

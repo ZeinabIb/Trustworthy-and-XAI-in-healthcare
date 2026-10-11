@@ -28,7 +28,7 @@ def test_item_contents(smoke_artifacts: dict[str, Any]) -> None:
     assert len(ds) > 0
     for i in range(len(ds)):
         x = ds[i]
-        assert x["images"].ndim == 4 and x["images"].shape[1:] == (3, size, size)
+        assert x["images"].ndim == 4 and x["images"].shape[1:] == (cfg["image"]["channels"], size, size)
         assert 1 <= x["images"].shape[0] <= k_max
         assert len(x["prior_images"]) == len(x["prior_texts"]) <= cfg["data"]["max_priors"]
         assert x["labels"].shape == (len(FINDINGS),) and x["label_mask"].shape == (len(FINDINGS),)

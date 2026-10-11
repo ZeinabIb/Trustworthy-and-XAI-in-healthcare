@@ -15,12 +15,14 @@ geopandas==1.2.0
 h11==0.16.0
 huggingface-hub==0.36.2
 idna==3.20
+imageio==2.38.1
 importlib-metadata==9.0.1
 iniconfig==2.3.1
 jh2==5.0.15
 jinja2==3.1.6
 joblib==1.6.0
 kiwisolver==1.5.1
+lazy-loader==0.6
 locket==1.0.0
 mapclassify==2.10.0
 markupsafe==3.0.4
@@ -53,6 +55,7 @@ regex==2026.9.29
 requests==2.34.2
 ruff==0.8.4
 safetensors==0.8.0
+scikit-image==0.26.0
 scikit-learn==1.5.2
 scipy==1.14.1
 shapely==2.2.0
@@ -60,10 +63,12 @@ six==1.17.0
 statsmodels==0.14.4
 sympy==1.13.1
 threadpoolctl==3.7.0
+tifffile==2026.3.3
 tokenizers==0.20.3
 toolz==1.2.0
 torch==2.5.1+cu124
 torchvision==0.20.1+cu124
+torchxrayvision==1.5.5
 tqdm==4.70.1
 transformers==4.46.3
 typing-extensions==4.16.0

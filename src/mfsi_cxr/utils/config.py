@@ -23,7 +23,7 @@ DATA_ROOT_ENV = "MFSI_DATA_ROOT"
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CONFIG_DIR = REPO_ROOT / "configs"
 # Shared config files merged into base.yaml, in order, before the profile is applied.
-COMPONENT_FILES: tuple[str, ...] = ("data.yaml", "finding_synonyms.yaml")
+COMPONENT_FILES: tuple[str, ...] = ("data.yaml", "finding_synonyms.yaml", "train.yaml")
 
 # Dotted keys a profile is allowed to override. Everything else must equal base.yaml.
 ALLOWED_PROFILE_KEYS: frozenset[str] = frozenset(
@@ -31,6 +31,7 @@ ALLOWED_PROFILE_KEYS: frozenset[str] = frozenset(
         "data.root",
         "data.pilot_patients",
         "data.image_format",
+        "model.weights",          # tiny_random in smoke only (no downloads in tests); DECISIONS 2026-10-11
         "image.size",
         "train.device",
         "train.batch_size",

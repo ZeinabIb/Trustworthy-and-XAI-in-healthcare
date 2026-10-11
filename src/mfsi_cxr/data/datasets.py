@@ -50,7 +50,7 @@ class SampleDataset(Dataset):
         self.samples = self.samples.reset_index(drop=True)
         self.labels = labels.set_index("study_id")[list(FINDINGS)]
         self.policy = cfg["labels"]["uncertain_policy"]
-        self.mean, self.std = cfg["image"]["mean"], cfg["image"]["std"]
+        self.channels, self.value_range = cfg["image"]["channels"], cfg["image"]["value_range"]
         self.cache = ImageCache(cfg)
         self.text = text_builder or TextBuilder.from_root(data_root(cfg), index, cfg)
 
@@ -58,7 +58,7 @@ class SampleDataset(Dataset):
         return len(self.samples)
 
     def _study_images(self, study_id: str) -> torch.Tensor:
-        return to_tensor(self.cache.study(study_id), self.mean, self.std)
+        return to_tensor(self.cache.study(study_id), self.channels, self.value_range)
 
     def __getitem__(self, i: int) -> dict[str, Any]:
         row = self.samples.iloc[i]

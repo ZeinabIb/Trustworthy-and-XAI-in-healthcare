@@ -19,3 +19,5 @@ eval:
   bootstrap_B: 50
 preflight:
   min_free_disk_gb: 1
+model:
+  weights: tiny_random   # no downloads in smoke/tests (allowed profile key)

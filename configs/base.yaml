@@ -17,9 +17,7 @@ data:
 
 image:
   size: 224
-  # PLACEHOLDER normalisation: replace with the chosen MIMIC-CXR checkpoint's stats in Phase 2.
-  mean: [0.5, 0.5, 0.5]
-  std: [0.5, 0.5, 0.5]
+  # channels / value_range: configs/train.yaml (they follow the image checkpoint)
   frontal_fallback: all_views   # a study with no frontal image uses its other views instead
 
 labels:

@@ -24,6 +24,7 @@ dependencies = [
     "torch==2.5.1",
     "torchvision==0.20.1",
     "transformers==4.46.3",
+    "torchxrayvision==1.5.5",   # MIMIC-CXR DenseNet121 (densenet121-res224-mimic_ch)
 ]
 
 [project.optional-dependencies]
