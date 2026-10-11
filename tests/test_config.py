@@ -64,3 +64,17 @@ def test_config_hash_is_stable_and_sensitive() -> None:
     assert config_hash(a) == config_hash(b)
     b["eval"]["bootstrap_B"] += 1
     assert config_hash(a) != config_hash(b)
+
+
+@pytest.mark.parametrize("profile", ["smoke", "pilot", "full"])
+def test_no_number_is_read_as_a_string(profile: str) -> None:
+    """PyYAML reads 1.0e10 (exponent without sign) as a string; numbers must be written as 1.0e+10."""
+    from mfsi_cxr.utils.config import flatten
+
+    for key, value in flatten(load_config(profile)).items():
+        if isinstance(value, str):
+            try:
+                float(value)
+            except ValueError:
+                continue
+            raise AssertionError(f"{key} = {value!r} is a number stored as a string")

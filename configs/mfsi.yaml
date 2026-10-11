@@ -1,0 +1,19 @@
+# MFSI (Phase 3). Merged into base.yaml; profiles may not override it. Fit on train, tune on val only.
+
+mfsi:
+  embeddings: full            # which Phase 2 export: the full model's z_img and z_txt
+  uncertain_policy: ignore    # ignore (uncertain in neither cloud) | ones (ablation: uncertain -> positive)
+  ridge_factor: 1.0e-3        # lambda = factor * trace / d, added only when a matrix is not PD (logged)
+  cond_max: 1.0e+10           # a shrinkage target worse than this chains to the pooled covariance
+  alpha_grid: [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+  alpha_folds: 5              # K-fold CV over train positives; fewer positives than folds -> alpha = 0
+  alpha_seed: 0
+  tau_grid: {min: 0.05, max: 20.0, n: 60}   # log grid; minimise ECE of p+ per modality on val
+  ece_bins: 15
+  agreement: cos              # cos (primary) | js (1 - JS, base 2) | none (ablation: A = 1)
+  combine: min                # min (primary) | mean (ablation)
+  yhat_rule: youden           # per-finding classifier threshold on val: youden | f1
+  escalate_fractions: [0.10, 0.25, 0.50]    # theta_R per stratum escalates these shares of val cases
+  operating_fraction: 0.25    # default operating point
+  inert_sd: 0.02              # agreement spread below this sd is "inert" (first experiment)
+  shared_space_corr: 0.95     # corr(p_img, p_txt) above this suggests a shared-space artefact
