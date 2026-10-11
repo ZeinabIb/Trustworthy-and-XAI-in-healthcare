@@ -1,9 +1,8 @@
 """Canary leakage test (mandatory, Phase 1.5). Must stay green on every data-loader change.
 
 Every forbidden section of every synthetic study holds a unique canary naming its study. The index
-text may never contain a canary of the index study (or of any study); prior texts and RadGraph facts may
-contain canaries of earlier studies only. Pending: the tokenised model input (Phase 2) must be added to
-this test when it exists.
+text may never contain a canary of the index study (or of any study); prior texts, RadGraph facts and the
+tokenised model input may contain canaries of earlier studies only.
 """
 
 from __future__ import annotations
@@ -163,3 +162,36 @@ def test_radgraph_never_holds_facts_of_a_last_study(built: dict[str, Any], facts
     """A patient's last study is no one's prior, so its facts are never extracted at all."""
     last = built["index"].sort_values("study_rank").groupby("patient_id")["study_id"].last()
     assert not set(facts["study_id"]) & set(last)
+
+
+def test_tokenised_model_input_is_exactly_the_safe_text(smoke_artifacts: dict[str, Any]) -> None:
+    """What the text encoder receives (collated batch -> token ids) is exactly the tokenisation of the
+    leakage-safe TextBuilder output, and that output holds no canary of the sample's own or later studies.
+    (Comparing hashed token ids with canary ids directly is unsound: the tiny hashing vocabulary collides,
+    e.g. a canary and ',' share an id.)"""
+    import torch
+
+    from mfsi_cxr.constants import SPLITS
+    from mfsi_cxr.data.datasets import SampleDataset, collate_fn
+    from mfsi_cxr.models.encoders import TextEncoder
+
+    encoder = TextEncoder(smoke_artifacts)
+    with_priors = 0
+    for split in SPLITS:
+        ds = SampleDataset(smoke_artifacts, split)
+        batch = collate_fn([ds[i] for i in range(len(ds))])
+        model_ids = encoder.tokenize(batch["index_text"], "index")["input_ids"]
+        for i, row in enumerate(ds.samples.itertuples()):
+            safe = ds.text.build(row.patient_id, row.study_id)
+            assert "CANARY" not in safe.index_text
+            expected = encoder.tokenize([safe.index_text], "index")["input_ids"][0]
+            n = len(expected)
+            assert torch.equal(model_ids[i, :n], expected) and not model_ids[i, n:].any(), row.study_id
+            if safe.prior_texts:
+                with_priors += 1
+                assert list(batch["prior_texts"][i]) == list(safe.prior_texts)
+                joined = " ".join(safe.prior_texts)
+                for section in CANARY_SECTIONS:
+                    assert canary(section, row.study_id) not in joined
+                assert canary("section_findings", safe.prior_study_ids[0]) in joined
+    assert with_priors, "synthetic data must contain samples with priors"
