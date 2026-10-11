@@ -88,6 +88,15 @@ class ImageEncoder(nn.Module):
             raise CheckpointError(f"{path.name}: sha256 {digest} != pinned {icfg['sha256']}")
         return model.features
 
+    def train(self, mode: bool = True) -> ImageEncoder:
+        """BatchNorm layers always stay in eval mode, so they keep their pretrained statistics; with small
+        batches, batch statistics would overwrite them (pilot 2026-10-11: drift pushed val below chance)."""
+        super().train(mode)
+        for m in self.trunk.modules():
+            if isinstance(m, nn.BatchNorm2d):
+                m.eval()
+        return self
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         features = self.trunk(x)
         return nn.functional.adaptive_avg_pool2d(nn.functional.relu(features), 1).flatten(1)

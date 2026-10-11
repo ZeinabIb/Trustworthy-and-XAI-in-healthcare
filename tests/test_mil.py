@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 import torch
+from torch import nn
 
 from mfsi_cxr.constants import FINDINGS
 from mfsi_cxr.data.datasets import SampleDataset, collate_fn
@@ -134,6 +135,7 @@ def _one_instance_model(cfg: dict[str, Any]) -> MILClassifier:
     model = MILClassifier(cfg, "image")
     d = cfg["model"]["emb_dim"]
     model.image.encoder.forward = lambda x: x.mean((1, 2, 3)).unsqueeze(-1).expand(-1, d)
+    model.image.norm = nn.Identity()  # a constant feature vector would be normalised to zero
     pool = model.image.level1
     with torch.no_grad():
         for lin in (pool.V, pool.U):
@@ -160,3 +162,25 @@ def test_masking_check_on_a_constant_model_changes_nothing(smoke_artifacts: dict
     table = masking_check(model, [batch], margin=0.05).set_index("branch")
     assert set(table.index) == {"img", "txt"}
     assert (table["n_changed"] == 0).all()
+
+
+def test_encoder_batchnorm_stays_in_eval_mode(smoke_cfg: dict[str, Any]) -> None:
+    from mfsi_cxr.models.encoders import ImageEncoder
+
+    enc = ImageEncoder(smoke_cfg)
+    enc.trunk.append(nn.BatchNorm2d(smoke_cfg["model"]["image_encoder"]["feature_dim"]))
+    enc.train()
+    bns = [m for m in enc.modules() if isinstance(m, nn.BatchNorm2d)]
+    assert bns and not any(m.training for m in bns) and enc.training
+    before = bns[0].running_mean.clone()
+    enc(torch.randn(4, smoke_cfg["image"]["channels"], 16, 16) * 500)
+    assert torch.equal(before, bns[0].running_mean)  # pretrained statistics never overwritten
+
+
+def test_instance_features_are_layer_normalised(smoke_cfg: dict[str, Any], batch: dict[str, Any]) -> None:
+    model = MILClassifier(smoke_cfg, "image").eval()
+    seen = {}
+    model.image.norm.register_forward_hook(lambda mod, inp, out: seen.setdefault("out", out))
+    model(batch)
+    out = seen["out"]
+    assert torch.allclose(out.mean(-1), torch.zeros(len(out)), atol=1e-4)

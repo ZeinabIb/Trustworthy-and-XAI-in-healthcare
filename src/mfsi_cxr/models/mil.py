@@ -1,6 +1,7 @@
 """Two-level attention MIL (Phase 2.2) and the masking-based causal check.
 
 Gated attention (Ilse et al. 2018): a_k = softmax_k(w^T (tanh(V h_k) * sigm(U h_k))), pooled = sum_k a_k h_k.
+Instance features h_k are encoder output -> projection (if needed) -> LayerNorm in both branches.
 Image branch: level 1 images -> study vector (shared over studies), level 2 studies -> z_img (index study and
 priors alike). Text branch: level 1 documents -> study vector (one document per study for now), level 2
 ASYMMETRIC: z_txt = v_index + sum_priors b_s v_s with b_s = softmax_priors(w^T tanh(W [v_s ; v_index]))
@@ -90,6 +91,7 @@ class ImageBranch(nn.Module):
         self.encoder = ImageEncoder(cfg)
         d = m["emb_dim"]
         self.proj = nn.Identity() if self.encoder.feature_dim == d else nn.Linear(self.encoder.feature_dim, d)
+        self.norm = nn.LayerNorm(d)  # per-instance features at a common scale (XRV features are ~0.05/dim)
         self.level1 = GatedAttentionPool(d, m["attention_hidden"])
         self.level2 = GatedAttentionPool(d, m["attention_hidden"])
 
@@ -97,7 +99,7 @@ class ImageBranch(nn.Module):
         bags, mask = _study_bags(batch)
         feats = bags.new_zeros(*mask.shape, self.level1.V.in_features)
         if mask.any():
-            feats[mask] = self.proj(self.encoder(bags[mask])).to(feats.dtype)
+            feats[mask] = self.norm(self.proj(self.encoder(bags[mask]))).to(feats.dtype)
         v, a = self.level1(feats, mask)
         study_mask = mask.any(-1)
         z, b = self.level2(v, study_mask)
@@ -111,6 +113,7 @@ class TextBranch(nn.Module):
         self.encoder = TextEncoder(cfg)
         d = m["emb_dim"]
         self.proj = nn.Linear(self.encoder.feature_dim, d)
+        self.norm = nn.LayerNorm(d)  # same per-instance scale as the image branch
         self.level1 = GatedAttentionPool(d, m["attention_hidden"])
         self.level2 = AsymmetricPriorPool(d, m["attention_hidden"])
 
@@ -118,12 +121,12 @@ class TextBranch(nn.Module):
         prior_mask = batch.get("prior_text_mask", batch["prior_study_mask"])
         b, p = prior_mask.shape
         device = prior_mask.device
-        index = self.proj(self.encoder(list(batch["index_text"]), "index"))
+        index = self.norm(self.proj(self.encoder(list(batch["index_text"]), "index")))
         priors = index.new_zeros(b, p, index.shape[-1])
         keep = prior_mask.cpu()
         texts = [t for i, docs in enumerate(batch["prior_texts"]) for j, t in enumerate(docs) if keep[i, j]]
         if texts:
-            priors[prior_mask] = self.proj(self.encoder(texts, "prior")).to(priors.dtype)
+            priors[prior_mask] = self.norm(self.proj(self.encoder(texts, "prior"))).to(priors.dtype)
         docs = torch.cat([index.unsqueeze(1), priors], 1).unsqueeze(2)  # (B, S, 1 doc, D)
         doc_mask = torch.cat([torch.ones(b, 1, dtype=torch.bool, device=device), prior_mask], 1).unsqueeze(2)
         v, a = self.level1(docs, doc_mask)
