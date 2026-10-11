@@ -42,17 +42,29 @@ def check_destination(dest: Path, repo_root: Path = REPO_ROOT) -> Path:
     return dest
 
 
-def fetch_label_files(table_ref: str, files: list[str], dest: Path) -> list[Path]:
+def fetch_table_files(table_ref: str, files: list[str], dest: Path) -> list[Path]:
+    """Download named files of a Redivis file table into dest; skips files already present.
+
+    Each file is downloaded into a staging folder and moved into place when complete, so an interrupted
+    run never leaves a partial file under the final name (which a restart would then skip).
+    """
+    import shutil
+
     import redivis
 
     table = redivis.table(table_ref)
+    dest.mkdir(parents=True, exist_ok=True)
     out = []
     for name in files:
         target = dest / name
-        if target.exists():
-            out.append(target)
-            continue
-        table.file(name).download(str(dest))
+        if not target.exists():
+            staging = dest / f"_download_{Path(name).stem}"
+            if staging.exists():
+                shutil.rmtree(staging)
+            staging.mkdir()
+            table.file(name).download(str(staging))
+            (staging / name).replace(target)
+            shutil.rmtree(staging)
         out.append(target)
     return out
 
@@ -110,10 +122,18 @@ def fetch_all(cfg: dict[str, Any], dest: Path, labels_ref: str, metadata_ref: st
     dest = check_destination(dest)
     dest.mkdir(parents=True, exist_ok=True)
     fetch = cfg["fetch"]
-    written = fetch_label_files(labels_ref, list(fetch["label_files"]), dest)
+    written = fetch_table_files(labels_ref, list(fetch["label_files"]), dest)
     if metadata_ref:
         written.append(fetch_metadata_table(metadata_ref, dest / cfg["data"]["metadata_file"]))
     return written
+
+
+def fetch_radgraph(cfg: dict[str, Any], dest: Path) -> list[Path]:
+    """RadGraph XL annotation files into dest/<data.radgraph_dir>/."""
+    dest = check_destination(dest)
+    fetch = cfg["fetch"]
+    return fetch_table_files(fetch["radgraph_table"], list(fetch["radgraph_files"]),
+                             dest / cfg["data"]["radgraph_dir"])
 
 
 def png_table_path(image_path: str) -> tuple[str, str]:

@@ -77,3 +77,47 @@ def test_merge_parquet_parts(tmp_path: Path) -> None:
 def test_plain_local_folder_is_accepted(tmp_path: Path) -> None:
     dest = tmp_path / "chexpert_plus"
     assert check_destination(dest, repo_root=tmp_path / "repo") == dest.resolve()
+
+
+class _FakeFile:
+    def __init__(self, name: str, fail: bool) -> None:
+        self.name, self.fail = name, fail
+
+    def download(self, folder: str) -> None:
+        (Path(folder) / self.name).write_text("partial" if self.fail else "complete", encoding="utf-8")
+        if self.fail:
+            raise ConnectionError("dropped")
+
+
+def _fake_redivis(monkeypatch: pytest.MonkeyPatch, fail: set[str], calls: list[str]) -> None:
+    import sys
+    import types
+
+    class Table:
+        def __init__(self, ref: str) -> None:
+            pass
+
+        def file(self, name: str) -> _FakeFile:
+            calls.append(name)
+            return _FakeFile(name, name in fail)
+
+    monkeypatch.setitem(sys.modules, "redivis", types.SimpleNamespace(table=Table))
+
+
+def test_interrupted_file_download_leaves_no_final_file(tmp_path: Path,
+                                                         monkeypatch: pytest.MonkeyPatch) -> None:
+    from mfsi_cxr.data.fetch import fetch_table_files
+
+    calls: list[str] = []
+    _fake_redivis(monkeypatch, {"b.json"}, calls)
+    with pytest.raises(ConnectionError):
+        fetch_table_files("ref", ["a.json", "b.json"], tmp_path / "out")
+    assert (tmp_path / "out" / "a.json").read_text(encoding="utf-8") == "complete"
+    assert not (tmp_path / "out" / "b.json").exists()
+
+    _fake_redivis(monkeypatch, set(), calls)
+    calls.clear()
+    out = fetch_table_files("ref", ["a.json", "b.json"], tmp_path / "out")
+    assert calls == ["b.json"]  # a.json skipped, b.json retried
+    assert [p.read_text(encoding="utf-8") for p in out] == ["complete", "complete"]
+    assert sorted(p.name for p in (tmp_path / "out").iterdir()) == ["a.json", "b.json"]

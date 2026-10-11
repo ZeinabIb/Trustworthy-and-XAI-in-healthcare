@@ -5,6 +5,7 @@
 
 data:
   metadata_file: df_chexpert_plus_240401.parquet   # relative to data.root (csv also readable)
+  radgraph_dir: radgraph                       # RadGraph XL files, relative to data.root
   # report_fixed.json is NOT usable: its labels are not aligned with its image paths (checked
   # 2026-10-11, agreement at chance level). impression_fixed is used instead.
   labels_file: impression_fixed.json
@@ -49,7 +50,7 @@ fetch:
   labels_table: aimi.chexpert_plus:5yyj:v1_0.chexpert_labels:pmec
   label_files: [findings_fixed.json, impression_fixed.json, report_fixed.json]
   metadata_table: aimi.chexpert_plus:5yyj:v1_0.df_chexpert_plus_240401:bavj   # 223,462 rows, 27 vars
-  # Not fetched yet (for later steps):
-  radgraph_table: aimi.chexpert_plus:5yyj:v1_0.radgraph_xl_annotations:8wdv
+  radgraph_table: aimi.chexpert_plus:5yyj:v1_0.radgraph_xl_annotations:8wdv   # 09_fetch_raw --radgraph
+  radgraph_files: [section_findings.json, section_impression.json]   # RadGraph XL was run per section
   png_train_table: aimi.chexpert_plus:5yyj:v1_0.png_train:s6cj
   png_valid_table: aimi.chexpert_plus:5yyj:v1_0.png_valid:41v9
