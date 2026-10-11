@@ -1,16 +1,16 @@
-# pilot: laptop, real CheXpert Plus subset. Results are throw-away (never used for scientific decisions).
+# pilot: real CheXpert Plus subset (laptop, now the RTX 4070 PC). Results are throw-away (never used for scientific decisions).
 data:
   root: null            # user-set local path (outside the repo, encrypted), or env MFSI_DATA_ROOT
-  pilot_patients: 500   # laptop: 16 GB+ RAM, MX330 2 GB GPU (too small; pilot trains on CPU)
+  pilot_patients: 500
   image_format: png
 image:
   size: 224
 train:
-  device: auto
-  batch_size: 4         # placeholder: set from laptop RAM
-  num_workers: 0
-  epochs: 2
-  precision: fp32
+  device: auto          # cuda on the RTX 4070 PC; the laptop falls back to cpu
+  batch_size: 16        # worst-case bag peaks at ~4 GiB on the 12 GB RTX 4070 (bf16)
+  num_workers: 4
+  epochs: 3
+  precision: bf16       # ignored on cpu
   seeds: [0]
 arbiter:
   model: null           # small local model, plumbing check only (Phase 5)
