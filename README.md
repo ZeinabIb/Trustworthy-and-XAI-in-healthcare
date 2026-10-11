@@ -96,13 +96,17 @@ Each phase has its own file in `docs/plan/` with the goal, the exact steps, test
 
 ## Getting started
 
-Requirements: Python 3.11+, a CUDA GPU for training and for the local LLM, and approved CheXpert Plus access.
+Requirements: Python 3.11, a CUDA GPU for training and for the local LLM, and approved CheXpert Plus access.
 
 ```bash
 git clone <this-repo-url> mfsi-cxr
 cd mfsi-cxr
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+uv venv --python 3.11 .venv && source .venv/bin/activate   # Windows: .\.venv\Scripts\Activate.ps1
+uv pip install -e ".[dev,data]"                            # CPU torch from PyPI (requirements.lock)
+
+# NVIDIA GPU (driver >= 525): swap in the CUDA 12.4 build (requirements-cu124.lock)
+uv pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu124 \
+    --reinstall-package torch --reinstall-package torchvision
 
 pytest -q                       # runs on synthetic fixtures, no real data or GPU needed
 ```
