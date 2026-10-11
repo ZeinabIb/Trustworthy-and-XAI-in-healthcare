@@ -8,17 +8,25 @@ import torch
 from torch.utils.data import DataLoader
 
 from mfsi_cxr.constants import FINDINGS, SPLITS
-from mfsi_cxr.data.datasets import SampleDataset, collate_fn, label_target_and_mask
+from mfsi_cxr.data.datasets import SampleDataset, collate_fn, label_targets
+
+
+def _policy(uncertain: str, blank: str, weight: float = 0.5) -> dict[str, Any]:
+    return {"uncertain_policy": uncertain, "blank_policy": blank, "blank_weight": weight}
 
 
 def test_label_policies() -> None:
-    v = np.array([1.0, 0.0, -1.0, np.nan])
-    t, m = label_target_and_mask(v, "u_ignore")
-    assert t.tolist() == [1, 0, 0, 0] and m.tolist() == [1, 1, 0, 0]
-    t, m = label_target_and_mask(v, "u_ones")
-    assert t.tolist() == [1, 0, 1, 0] and m.tolist() == [1, 1, 1, 0]
+    v = np.array([1.0, 0.0, -1.0, np.nan])  # positive, negative, uncertain, blank
+    t, m, w = label_targets(v, _policy("u_ignore", "negative"))
+    assert t.tolist() == [1, 0, 0, 0] and m.tolist() == [1, 1, 0, 1] and w.tolist() == [1, 1, 0, 0.5]
+    t, m, w = label_targets(v, _policy("u_ones", "negative", 0.25))
+    assert t.tolist() == [1, 0, 1, 0] and m.tolist() == [1, 1, 1, 1] and w.tolist() == [1, 1, 1, 0.25]
+    t, m, w = label_targets(v, _policy("u_ignore", "ignore"))
+    assert m.tolist() == [1, 1, 0, 0] and w.tolist() == [1, 1, 0, 0]
     with pytest.raises(ValueError):
-        label_target_and_mask(v, "u_zeros_maybe")
+        label_targets(v, _policy("u_zeros_maybe", "negative"))
+    with pytest.raises(ValueError):
+        label_targets(v, _policy("u_ignore", "positive"))
 
 
 def test_item_contents(smoke_artifacts: dict[str, Any]) -> None:

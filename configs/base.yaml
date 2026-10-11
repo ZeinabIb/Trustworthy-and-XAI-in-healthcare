@@ -22,6 +22,8 @@ image:
 
 labels:
   uncertain_policy: u_ignore    # u_ignore (primary) | u_ones (sensitivity analysis)
+  blank_policy: negative        # blank (not mentioned) -> negative (Zeinab 2026-10-11) | ignore
+  blank_weight: 0.5             # loss weight of a blank-derived negative (explicit labels: 1); tune on val only
 
 train:
   device: auto                # auto = cuda -> mps -> cpu

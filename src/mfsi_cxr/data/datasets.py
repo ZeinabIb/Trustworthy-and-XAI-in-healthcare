@@ -20,19 +20,32 @@ from mfsi_cxr.utils.config import data_root
 from mfsi_cxr.utils.io import artifact_dir, read_table
 
 UNCERTAIN_POLICIES = ("u_ignore", "u_ones")
+BLANK_POLICIES = ("negative", "ignore")
 
 
-def label_target_and_mask(values: np.ndarray, policy: str) -> tuple[np.ndarray, np.ndarray]:
-    """values in {1,0,-1,NaN}. u_ignore: train on {0,1} only. u_ones: uncertain counts as positive."""
-    if policy == "u_ignore":
-        target = values == POSITIVE
-        mask = (values == POSITIVE) | (values == NEGATIVE)
-    elif policy == "u_ones":
-        target = (values == POSITIVE) | (values == UNCERTAIN)
-        mask = target | (values == NEGATIVE)
-    else:
+def label_targets(values: np.ndarray,
+                  labels_cfg: dict[str, Any]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """values in {1,0,-1,NaN} -> (target, mask, weight).
+
+    mask = labels scored in metrics; weight = their weight in the loss. Explicit 1/0: weight 1.
+    Uncertain: u_ignore -> not used; u_ones -> positive, weight 1. Blank (not mentioned): blank_policy
+    'negative' -> negative with weight labels.blank_weight (the CheXpert labeler writes 0 only for an
+    explicit "no X", so without blanks several findings have almost no negatives; Zeinab 2026-10-11);
+    'ignore' -> not used.
+    """
+    policy, blank = labels_cfg["uncertain_policy"], labels_cfg["blank_policy"]
+    if policy not in UNCERTAIN_POLICIES:
         raise ValueError(f"unknown uncertain policy {policy!r}; expected one of {UNCERTAIN_POLICIES}")
-    return target.astype(np.float32), mask.astype(np.float32)
+    if blank not in BLANK_POLICIES:
+        raise ValueError(f"unknown blank policy {blank!r}; expected one of {BLANK_POLICIES}")
+    pos, neg, unc, nan = values == POSITIVE, values == NEGATIVE, values == UNCERTAIN, np.isnan(values)
+    u_ones = policy == "u_ones"
+    target = pos | (unc & u_ones)
+    explicit = pos | neg | (unc & u_ones)
+    used_blank = nan & (blank == "negative")
+    mask = explicit | used_blank
+    weight = explicit * 1.0 + used_blank * float(labels_cfg["blank_weight"])
+    return target.astype(np.float32), mask.astype(np.float32), weight.astype(np.float32)
 
 
 class SampleDataset(Dataset):
@@ -52,7 +65,7 @@ class SampleDataset(Dataset):
         self.samples = texts[texts["patient_id"].isin(patients)].sort_values(["patient_id", "study_rank"])
         self.samples = self.samples.reset_index(drop=True)
         self.labels = labels.set_index("study_id")[list(FINDINGS)]
-        self.policy = cfg["labels"]["uncertain_policy"]
+        self.labels_cfg = cfg["labels"]
         self.channels, self.value_range = cfg["image"]["channels"], cfg["image"]["value_range"]
         self.cache = ImageCache(cfg)
         self.text = text_builder or TextBuilder.from_root(data_root(cfg), index, cfg)
@@ -80,7 +93,7 @@ class SampleDataset(Dataset):
             values = self.labels.loc[row["study_id"]].to_numpy(dtype=np.float64)
         else:
             values = np.full(len(FINDINGS), np.nan)
-        target, mask = label_target_and_mask(values, self.policy)
+        target, mask, weight = label_targets(values, self.labels_cfg)
         images = self._study_images(row["study_id"])
         return {
             "images": images,
@@ -89,7 +102,8 @@ class SampleDataset(Dataset):
             "prior_texts": list(text.prior_texts),
             "labels": torch.from_numpy(target),
             "label_values": torch.from_numpy(values.astype(np.float32)),  # {1,0,-1,NaN}, for the exports
-            "label_mask": torch.from_numpy(mask),
+            "label_mask": torch.from_numpy(mask),      # scored in metrics
+            "label_weight": torch.from_numpy(weight),  # weight in the loss
             "patient_id": row["patient_id"],
             "study_id": row["study_id"],
             "n_studies": 1 + len(prior_images),
@@ -136,6 +150,7 @@ def collate_fn(batch: list[dict[str, Any]]) -> dict[str, Any]:
         "prior_text_mask": prior_text_mask,
         "labels": torch.stack([x["labels"] for x in batch]),
         "label_mask": torch.stack([x["label_mask"] for x in batch]),
+        "label_weight": torch.stack([x["label_weight"] for x in batch]),
         "label_values": torch.stack([x["label_values"] for x in batch]),
         "patient_id": [x["patient_id"] for x in batch],
         "study_id": [x["study_id"] for x in batch],

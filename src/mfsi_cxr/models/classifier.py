@@ -13,16 +13,18 @@ from torch import nn
 from mfsi_cxr.constants import FINDINGS
 
 
-def masked_bce(logits: torch.Tensor, target: torch.Tensor, mask: torch.Tensor,
+def masked_bce(logits: torch.Tensor, target: torch.Tensor, weight: torch.Tensor,
                pos_weight: torch.Tensor | None = None) -> torch.Tensor:
-    """BCE over the entries with mask 1 (U-Ignore masks uncertain and blank labels)."""
+    """Weighted BCE: per-label weights (0 = unused, e.g. uncertain under U-Ignore; blank-derived negatives
+    get labels.blank_weight), normalised by the total weight."""
     loss = nn.functional.binary_cross_entropy_with_logits(logits.float(), target, reduction="none",
                                                           pos_weight=pos_weight)
-    return (loss * mask).sum() / mask.sum().clamp_min(1.0)
+    return (loss * weight).sum() / weight.sum().clamp_min(1e-6)
 
 
 def pos_weight_from(targets: np.ndarray, masks: np.ndarray) -> torch.Tensor:
-    """n_neg / n_pos per label over the masked-in train labels (1 where a label has no positive)."""
+    """n_neg / n_pos per label over the scored train labels (blank negatives included when used;
+    1 where a label has no positive)."""
     pos = (targets * masks).sum(0)
     neg = ((1 - targets) * masks).sum(0)
     return torch.tensor(np.where(pos > 0, neg / np.maximum(pos, 1), 1.0), dtype=torch.float32)
@@ -30,9 +32,9 @@ def pos_weight_from(targets: np.ndarray, masks: np.ndarray) -> torch.Tensor:
 
 def training_loss(out: dict[str, Any], batch: dict[str, Any], cfg: dict[str, Any],
                   pos_weight: torch.Tensor | None = None) -> tuple[torch.Tensor, dict[str, float]]:
-    """Masked BCE minus lambda * attention entropy (the penalty that keeps attention from collapsing)."""
+    """Weighted BCE minus lambda * attention entropy (the penalty that keeps attention from collapsing)."""
     device = out["logits"].device
-    bce = masked_bce(out["logits"], batch["labels"].to(device), batch["label_mask"].to(device),
+    bce = masked_bce(out["logits"], batch["labels"].to(device), batch["label_weight"].to(device),
                      None if pos_weight is None else pos_weight.to(device))
     loss = bce - cfg["train"]["entropy_lambda"] * out["entropy"]
     return loss, {"bce": float(bce.detach()), "entropy": float(out["entropy"].detach())}

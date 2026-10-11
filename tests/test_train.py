@@ -23,11 +23,13 @@ def _cfg(base: dict[str, Any], **train: Any) -> dict[str, Any]:
     return cfg
 
 
-def test_masked_bce_ignores_masked_entries() -> None:
+def test_weighted_bce() -> None:
     logits = torch.tensor([[10.0, -10.0]])
     target = torch.tensor([[1.0, 1.0]])
-    assert masked_bce(logits, target, torch.tensor([[1.0, 0.0]])) < 1e-3
-    assert masked_bce(logits, target, torch.tensor([[1.0, 1.0]])) > 1.0
+    assert masked_bce(logits, target, torch.tensor([[1.0, 0.0]])) < 1e-3  # weight 0 = unused
+    full = masked_bce(logits, target, torch.tensor([[1.0, 1.0]]))
+    half = masked_bce(logits, target, torch.tensor([[1.0, 0.5]]))
+    assert full > half > 1.0  # a wrong label counts less when down-weighted
 
 
 def test_pos_weight() -> None:
@@ -66,7 +68,8 @@ def _learnable_batches(cfg: dict[str, Any], n: int = 64, per_batch: int = 8) -> 
             img[0, :, j * rows:(j + 1) * rows] = hi
         text = " ".join(f"label{j}" for j in positive) or "none"
         items.append({"images": img, "prior_images": [], "index_text": text, "prior_texts": [],
-                      "labels": y, "label_mask": torch.ones_like(y), "label_values": y,
+                      "labels": y, "label_mask": torch.ones_like(y), "label_weight": torch.ones_like(y),
+                      "label_values": y,
                       "patient_id": f"p{i}", "study_id": f"p{i}/s1", "n_studies": 1, "n_images": 1,
                       "text_len": 2, "n_priors": 0})
     return [collate_fn(items[k:k + per_batch]) for k in range(0, n, per_batch)]
