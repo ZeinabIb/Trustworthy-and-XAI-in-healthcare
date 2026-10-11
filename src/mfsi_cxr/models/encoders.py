@@ -44,6 +44,15 @@ def _weights_mode(cfg: dict[str, Any]) -> str:
     return mode
 
 
+class _Scale(nn.Module):
+    def __init__(self, factor: float) -> None:
+        super().__init__()
+        self.factor = factor
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x * self.factor
+
+
 class ImageEncoder(nn.Module):
     """(N, C, H, W) -> (N, feature_dim)."""
 
@@ -57,6 +66,7 @@ class ImageEncoder(nn.Module):
         else:
             c = cfg["model"]["tiny"]["image_channels"]
             self.trunk = nn.Sequential(
+                _Scale(1.0 / max(abs(v) for v in cfg["image"]["value_range"])),  # XRV range -> [-1, 1]
                 nn.Conv2d(cfg["image"]["channels"], c, 3, stride=2, padding=1),
                 nn.ReLU(),
                 nn.Conv2d(c, self.feature_dim, 3, stride=2, padding=1),

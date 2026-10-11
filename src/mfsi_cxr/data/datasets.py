@@ -36,7 +36,10 @@ def label_target_and_mask(values: np.ndarray, policy: str) -> tuple[np.ndarray, 
 
 
 class SampleDataset(Dataset):
-    def __init__(self, cfg: dict[str, Any], split: str, text_builder: TextBuilder | None = None) -> None:
+    def __init__(self, cfg: dict[str, Any], split: str, text_builder: TextBuilder | None = None,
+                 text_shuffle_seed: int | None = None) -> None:
+        """text_shuffle_seed: SANITY CHECK ONLY (Phase 2.6). Each sample gets the whole text (index text and
+        prior reports) of another sample of the split, so text no longer belongs to its labels."""
         if split not in SPLITS:
             raise ValueError(f"unknown split {split!r}; expected one of {SPLITS}")
         adir = artifact_dir(cfg)
@@ -53,6 +56,9 @@ class SampleDataset(Dataset):
         self.channels, self.value_range = cfg["image"]["channels"], cfg["image"]["value_range"]
         self.cache = ImageCache(cfg)
         self.text = text_builder or TextBuilder.from_root(data_root(cfg), index, cfg)
+        n = len(self.samples)
+        self.text_source = (np.random.default_rng(text_shuffle_seed).permutation(n)
+                            if text_shuffle_seed is not None else np.arange(n))
 
     def __len__(self) -> int:
         return len(self.samples)
@@ -65,25 +71,31 @@ class SampleDataset(Dataset):
         text = self.text.build(row["patient_id"], row["study_id"])
         if list(text.prior_study_ids) != list(row["prior_study_ids"]):
             raise RuntimeError(f"text_inputs.parquet is stale for {row['study_id']}; rerun 14")
+        prior_images = [self._study_images(s) for s in text.prior_study_ids]
+        source = int(self.text_source[i])
+        if source != i:
+            other = self.samples.iloc[source]
+            text = self.text.build(other["patient_id"], other["study_id"])
         if row["study_id"] in self.labels.index:
             values = self.labels.loc[row["study_id"]].to_numpy(dtype=np.float64)
         else:
             values = np.full(len(FINDINGS), np.nan)
         target, mask = label_target_and_mask(values, self.policy)
         images = self._study_images(row["study_id"])
-        prior_images = [self._study_images(s) for s in text.prior_study_ids]
         return {
             "images": images,
             "prior_images": prior_images,
             "index_text": text.index_text,
             "prior_texts": list(text.prior_texts),
             "labels": torch.from_numpy(target),
+            "label_values": torch.from_numpy(values.astype(np.float32)),  # {1,0,-1,NaN}, for the exports
             "label_mask": torch.from_numpy(mask),
             "patient_id": row["patient_id"],
             "study_id": row["study_id"],
             "n_studies": 1 + len(prior_images),
             "n_images": int(images.shape[0] + sum(p.shape[0] for p in prior_images)),
-            "text_len": int(row["text_len"]),
+            "text_len": int(text.text_len),
+            "n_priors": len(prior_images),
         }
 
 
@@ -102,7 +114,10 @@ def collate_fn(batch: list[dict[str, Any]]) -> dict[str, Any]:
     prior_images = torch.zeros(b, p, kp, *shape)
     prior_image_mask = torch.zeros(b, p, kp, dtype=torch.bool)
     prior_study_mask = torch.zeros(b, p, dtype=torch.bool)
+    pt = max(len(x["prior_texts"]) for x in batch)
+    prior_text_mask = torch.zeros(b, pt, dtype=torch.bool)
     for i, x in enumerate(batch):
+        prior_text_mask[i, : len(x["prior_texts"])] = True
         n = x["images"].shape[0]
         images[i, :n] = x["images"]
         image_mask[i, :n] = True
@@ -118,11 +133,14 @@ def collate_fn(batch: list[dict[str, Any]]) -> dict[str, Any]:
         "prior_study_mask": prior_study_mask,
         "index_text": [x["index_text"] for x in batch],
         "prior_texts": [x["prior_texts"] for x in batch],
+        "prior_text_mask": prior_text_mask,
         "labels": torch.stack([x["labels"] for x in batch]),
         "label_mask": torch.stack([x["label_mask"] for x in batch]),
+        "label_values": torch.stack([x["label_values"] for x in batch]),
         "patient_id": [x["patient_id"] for x in batch],
         "study_id": [x["study_id"] for x in batch],
         "n_studies": torch.tensor([x["n_studies"] for x in batch]),
         "n_images": torch.tensor([x["n_images"] for x in batch]),
         "text_len": torch.tensor([x["text_len"] for x in batch]),
+        "n_priors": torch.tensor([x["n_priors"] for x in batch]),
     }
