@@ -8,6 +8,7 @@ run sees the same batches as an uninterrupted one. Val is used for early stoppin
 
 from __future__ import annotations
 
+import copy
 import json
 import math
 import random
@@ -31,6 +32,24 @@ from mfsi_cxr.utils.seed import set_seed
 log = get_logger("train")
 PRECISIONS = {"fp32": None, "bf16": torch.bfloat16, "fp16": torch.float16}
 EPOCH_SEED_STRIDE = 1000  # shuffle seed of an epoch = seed * stride + epoch
+RESUMABLE_KEYS = ("epochs", "num_workers", "device")  # may change between a run and its resume
+RECIPE_SECTIONS = ("data", "image", "labels", "model", "train")  # what defines a trained model
+
+
+class ResumeMismatchError(RuntimeError):
+    """last.pt was written with another training recipe; resuming would mix two recipes."""
+
+
+def recipe_hash(cfg: dict[str, Any]) -> str:
+    """Hash of what defines a trained model (RECIPE_SECTIONS), except where the data lives and how long or
+    fast it runs (more epochs may be added on resume). Probe, sanity and eval settings do not count."""
+    from mfsi_cxr.utils.config import config_hash
+
+    recipe = copy.deepcopy({k: cfg[k] for k in RECIPE_SECTIONS})
+    recipe["data"].pop("root", None)
+    for key in RESUMABLE_KEYS:
+        recipe["train"].pop(key, None)
+    return config_hash(recipe)
 
 
 def run_name(branch: str, seed: int, shuffled_text: bool = False) -> str:
@@ -138,6 +157,8 @@ def train_model(cfg: dict[str, Any], branch: str, seed: int, resume: bool = Fals
     start, best, patience, history = 0, -math.inf, 0, []
     if resume and last.exists():
         state = torch.load(last, map_location=device, weights_only=False)
+        if state.get("recipe") != recipe_hash(cfg):
+            raise ResumeMismatchError(f"{last} was trained with another config; rerun with --fresh")
         model.load_state_dict(state["model"])
         optimizer.load_state_dict(state["optimizer"])
         start, best = state["epoch"] + 1, state["best"]
@@ -148,7 +169,7 @@ def train_model(cfg: dict[str, Any], branch: str, seed: int, resume: bool = Fals
     def checkpoint(epoch: int) -> None:
         _save({"model": model.state_dict(), "optimizer": optimizer.state_dict(), "epoch": epoch,
                "best": best, "patience": patience, "history": history, "rng": _rng_state(),
-               "branch": branch, "seed": seed}, last)
+               "branch": branch, "seed": seed, "recipe": recipe_hash(cfg)}, last)
 
     epoch = start - 1
     try:

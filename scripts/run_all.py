@@ -28,6 +28,11 @@ STEPS: list[tuple[str, list[str], tuple[str, ...]]] = [
     ("14_build_text_inputs.py", [], ALL),
     ("15_build_radgraph_facts.py", [], ALL),
     ("16_check_leakage.py", [], ALL),
+    ("20_train.py", [], ALL),
+    ("21_extract.py", [], ALL),
+    ("22_probe.py", [], ALL),
+    ("23_masking_check.py", [], ALL),
+    ("24_shuffled_text_check.py", [], ALL),
 ]
 
 

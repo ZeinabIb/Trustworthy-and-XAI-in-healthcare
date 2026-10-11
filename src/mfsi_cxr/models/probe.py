@@ -1,7 +1,8 @@
 """Text-informativeness probe (Phase 2.5): which findings are two-witness (text informative) vs one-witness.
 
 Per finding: logistic regression on z_txt alone (standardised), fit on train, AUROC on val with a bootstrap CI
-over PATIENTS (a patient contributes several samples). text_informative = lower CI bound > probe.text_cutoff.
+over PATIENTS (a patient contributes several samples). text_informative = lower CI bound > probe.text_cutoff,
+judged only with at least probe.min_class_count val positives and negatives (else not informative).
 The same probe on z_img is saved as a reference. Val only; the test split is never read here.
 """
 
@@ -65,7 +66,9 @@ def probe_table(train: dict[str, np.ndarray], val: dict[str, np.ndarray], key: s
                 pcfg["ci_level"], seed)
         rows.append(row)
     table = pd.DataFrame(rows)
-    table["informative"] = table["ci_low"] > pcfg["text_cutoff"]  # NaN compares False
+    n_neg = table["n_val"] - table["n_val_pos"]
+    table["judged"] = (table["n_val_pos"] >= pcfg["min_class_count"]) & (n_neg >= pcfg["min_class_count"])
+    table["informative"] = table["judged"] & (table["ci_low"] > pcfg["text_cutoff"])  # NaN compares False
     return table
 
 

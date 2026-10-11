@@ -1,12 +1,17 @@
-"""Write synthetic raw data (with leakage canaries) into the smoke data root. Smoke profile only."""
+"""Write synthetic raw data (with leakage canaries) into the smoke data root. Smoke profile only.
+
+Also clears artifacts/smoke and outputs/smoke: they derive from the previous synthetic data and are stale.
+"""
 
 from __future__ import annotations
 
+import shutil
 import sys
 
 from mfsi_cxr.data.synthetic import make_synthetic_dataset
 from mfsi_cxr.utils.cli import base_parser, config_from_args
 from mfsi_cxr.utils.config import data_root
+from mfsi_cxr.utils.io import artifact_dir, output_dir
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -14,6 +19,9 @@ def main(argv: list[str] | None = None) -> int:
     if cfg["profile"] != "smoke":
         print("01_make_synthetic: refusing to write synthetic data outside the smoke profile")
         return 1
+    for folder in (artifact_dir(cfg), output_dir(cfg)):
+        if folder.exists():
+            shutil.rmtree(folder)
     written = make_synthetic_dataset(data_root(cfg), cfg)
     print(f"synthetic data written: {', '.join(p.name for p in written.values())}")
     return 0

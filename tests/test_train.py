@@ -136,3 +136,27 @@ def test_shuffled_text_run_has_its_own_name(smoke_artifacts: dict[str, Any]) -> 
     cfg = _cfg(smoke_artifacts, epochs=1)
     summary = train_model(cfg, "text", seed=0, text_shuffle_seed=7)
     assert summary["run"] == "text_seed0_shuffled_text"
+
+
+def test_resume_with_another_recipe_is_refused(smoke_artifacts: dict[str, Any]) -> None:
+    from mfsi_cxr.models.train import ResumeMismatchError
+
+    train_model(_cfg(smoke_artifacts, epochs=1), "image", seed=5)
+    changed = _cfg(smoke_artifacts, epochs=2, lr=1e-2)
+    with pytest.raises(ResumeMismatchError):
+        train_model(changed, "image", seed=5, resume=True)
+    longer = _cfg(smoke_artifacts, epochs=2)  # more epochs is a valid resume
+    assert train_model(longer, "image", seed=5, resume=True)["history"][-1]["epoch"] == 1
+
+
+def test_recipe_hash_ignores_location_and_length(smoke_artifacts: dict[str, Any]) -> None:
+    from mfsi_cxr.models.train import recipe_hash
+
+    base = recipe_hash(smoke_artifacts)
+    moved = copy.deepcopy(smoke_artifacts)
+    moved["data"]["root"], moved["paths"]["artifacts_root"] = "elsewhere", "x"
+    moved["train"]["epochs"] = 99
+    moved["sanity"]["min_class_count"] = 1  # not a training setting
+    assert recipe_hash(moved) == base
+    moved["train"]["lr"] = 1.0
+    assert recipe_hash(moved) != base

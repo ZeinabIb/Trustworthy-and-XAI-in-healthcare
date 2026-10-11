@@ -46,3 +46,9 @@ def test_bootstrap_ci_brackets_the_point_estimate() -> None:
 def test_single_class_gives_nan() -> None:
     point, lo, hi = bootstrap_auroc(np.zeros(10), np.arange(10.0), np.arange(10), 10, 0.95, 0)
     assert np.isnan(point) and np.isnan(lo) and np.isnan(hi)
+
+
+def test_too_few_val_labels_are_never_informative(smoke_cfg: dict[str, Any]) -> None:
+    train, val = _split(400, True, 0), _split(12, True, 1)  # ~5 positives per finding
+    table = probe_table(train, val, "z_txt", smoke_cfg, seed=0)
+    assert not table["judged"].any() and not table["informative"].any()
