@@ -4,7 +4,7 @@
 # A rule matches an Observation entity when one of its `observation` words is a word of the entity's tokens
 # and, if the rule lists `anatomy`, one of those words is a word of the entity's tokens or of the anatomy it
 # is `located_at`. Words are case-folded. A fact may map to several findings or to none ("other context").
-# No Finding is never mapped. PENDING Zeinab's clinical review (a first, simple dictionary).
+# No Finding is never mapped. Approved by Zeinab 2026-10-11 (a first, simple dictionary).
 
 finding_synonyms:
   Enlarged Cardiomediastinum:
