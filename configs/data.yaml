@@ -1,15 +1,15 @@
 # Data schema and leakage allowlist. Merged into base.yaml; profiles may not override any of it.
 #
-# Column names are PROVISIONAL until scripts/10_audit_data.py has run on the real metadata table
-# (Phase 1.1). The text-section classes are PENDING Zeinab's approval (STOP-AND-ASK).
+# Column names checked against the real metadata table (all 27 match, 2026-10-11). Text-section
+# classes, label file and the rules below approved by Zeinab on 2026-10-11 (docs/DECISIONS.md).
 
 data:
   metadata_file: df_chexpert_plus_240401.parquet   # relative to data.root (csv also readable)
   # report_fixed.json is NOT usable: its labels are not aligned with its image paths (checked
-  # 2026-10-11, agreement at chance level). PENDING Zeinab's confirmation of impression_fixed.
+  # 2026-10-11, agreement at chance level). impression_fixed is used instead.
   labels_file: impression_fixed.json
-  label_aggregation: priority                  # PENDING: images of a study disagree in 380 studies
-  study_overlap_policy: drop_patients          # PENDING: 366 patients have studies interleaved in time
+  label_aggregation: priority                  # images of a study disagree in 380 studies (364 after the drop)
+  study_overlap_policy: drop_patients          # 366 patients have studies interleaved in time
   columns:
     image_path: path_to_image                  # relative path, e.g. train/patient00001/study1/view1_frontal.jpg
     patient_id: deid_patient_id
@@ -18,7 +18,7 @@ data:
     source_split: split
   frontal_value: Frontal
   radiologist_split_value: valid               # dataset split value marking the radiologist-read subset
-  radiologist_policy: holdout                  # PENDING (question 10): holdout = never in train/val/test
+  radiologist_policy: holdout                  # holdout = never in train/val/test
   pilot_min_pos_per_finding: 5                 # stratified pilot sampling target per finding
 
   # Allowlist. A column that is not listed here is never read as text. The loader also refuses to
@@ -41,6 +41,8 @@ data:
       - section_summary
   demographics: [age, sex]    # added to the index text; race is never a model input
   no_pre_read_token: "[NO PRE-READ TEXT]"
+  leakage_check:              # scripts/15_check_leakage.py (audit only, counts only)
+    min_snippet_chars: 20     # shorter report pieces ("none", "normal") are too generic to signal a leak
 
 # scripts/09_fetch_raw.py (run by Zeinab). Table refs are copied from the Redivis table pages.
 fetch:
