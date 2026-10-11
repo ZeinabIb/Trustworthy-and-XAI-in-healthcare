@@ -40,10 +40,11 @@ def main(argv: list[str] | None = None) -> int:
             note = "  STOP-AND-ASK: tau at the grid boundary" if t["at_grid_boundary"] else ""
             print(f"seed {seed} tau_{name} = {t['tau']:.3g}  ECE {t['ece_before_tau1']:.4f} (tau=1) -> "
                   f"{t['ece_after']:.4f}{note}")
-        bad = table[(table["cond_pos"] > m["cond_max"]) | (table["ridge_pos"] > 0)]
-        if len(bad):
-            print(f"STOP-AND-ASK candidates: {len(bad)} positive covariances needed a ridge or are poorly "
-                  f"conditioned: {sorted(set(bad['finding']))}")
+        for cls in ("pos", "neg"):
+            bad = table[(table[f"cond_{cls}"] > m["cond_max"]) | (table[f"ridge_{cls}"] > 0)]
+            if len(bad):
+                print(f"STOP-AND-ASK: {len(bad)} of {len(table)} {cls} covariances needed a ridge or "
+                      f"are poorly conditioned ({sorted(set(bad['modality']))})")
         strata = {s: [f for f in FINDINGS if params["strata"][f] == s]
                   for s in set(params["strata"].values())}
         print("strata:", strata)

@@ -17,6 +17,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from scipy.special import expit
 
 from mfsi_cxr.constants import FINDINGS
 from mfsi_cxr.mfsi.clouds import cloud_masks, prototype
@@ -135,10 +136,10 @@ def fit_tau(d_pos: np.ndarray, d_neg: np.ndarray, y: np.ndarray, cfg: dict[str, 
     label, used = tau_targets(y, m["uncertain_policy"])
     gap = (d_neg - d_pos)[used]
     target = label[used]
-    errs = [ece(1.0 / (1.0 + np.exp(-gap / t)), target, m["ece_bins"]) for t in grid]
+    errs = [ece(expit(gap / t), target, m["ece_bins"]) for t in grid]
     best = int(np.argmin(errs))
     return {"tau": float(grid[best]), "ece_after": float(errs[best]),
-            "ece_before_tau1": ece(1.0 / (1.0 + np.exp(-gap)), target, m["ece_bins"]),
+            "ece_before_tau1": ece(expit(gap), target, m["ece_bins"]),
             "at_grid_boundary": best in (0, len(grid) - 1)}
 
 
