@@ -46,3 +46,16 @@ eval:
     confound_bins: 4              # quantile bins of each volume variable (ties merged)
     confound_strong: 0.3          # |Spearman(R, variable)| at or above this in any finding -> rank-normalised R
     uncertain_min: 5              # uncertain-label check only for findings with >= this many y = -1 rows
+  degrade:                        # degrade-one-modality test (plan 4 control 3; face validity only)
+    seed: 0
+    history_sections: [section_clinical_history, section_history]   # dropped by drop_history (index text)
+    variants:
+      - {name: blur_s1, modality: image, kind: blur, param: 1}
+      - {name: blur_s2, modality: image, kind: blur, param: 2}
+      - {name: blur_s4, modality: image, kind: blur, param: 4}
+      - {name: occlude_25, modality: image, kind: occlude, param: 0.25}
+      - {name: occlude_50, modality: image, kind: occlude, param: 0.50}
+      - {name: truncate_25, modality: text, kind: truncate, param: 0.25}
+      - {name: truncate_50, modality: text, kind: truncate, param: 0.50}
+      - {name: shuffle_sentences, modality: text, kind: shuffle, param: null}
+      - {name: drop_history, modality: text, kind: drop_history, param: null}

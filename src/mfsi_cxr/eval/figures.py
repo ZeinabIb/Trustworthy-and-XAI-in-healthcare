@@ -136,3 +136,34 @@ def deciles_figure(dec, path: Path, title: str) -> None:
     fig.tight_layout()
     fig.savefig(path, dpi=120, facecolor=SURFACE)
     plt.close(fig)
+
+
+def degrade_figure(summary, path: Path, title: str) -> None:
+    """Dot plot: change in mean r_img, r_txt and A_cos per degradation, with 95% CI whiskers."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    names = list(dict.fromkeys(summary["variant"]))
+    metrics = ["r_img", "r_txt", "A_cos"]
+    fig, ax = plt.subplots(figsize=(8, 0.45 * len(names) + 1.5), facecolor=SURFACE)
+    ax.set_facecolor(SURFACE)
+    for k, (m, color) in enumerate(zip(metrics, SLOTS, strict=False)):
+        g = summary[summary["metric"] == m].set_index("variant").loc[names]
+        y = np.arange(len(names)) + (k - 1) * 0.22
+        ax.errorbar(g["change"], y, xerr=[g["change"] - g["change_lo"], g["change_hi"] - g["change"]],
+                    fmt="o", color=color, markersize=6, linewidth=1.5, capsize=0, label=m)
+    ax.axvline(0, color=MUTED, linewidth=1)
+    ax.set_yticks(np.arange(len(names)), names, color=INK, fontsize=9)
+    ax.invert_yaxis()
+    ax.set_xlabel("change after degradation (mean over samples and findings)", color=MUTED, fontsize=9)
+    ax.grid(axis="x", color=GRID, linewidth=0.6)
+    ax.tick_params(colors=MUTED, labelsize=8)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    ax.legend(frameon=False, fontsize=9, labelcolor=INK, loc="lower left")
+    ax.set_title(title, color=INK, fontsize=10)
+    fig.tight_layout()
+    fig.savefig(path, dpi=120, facecolor=SURFACE)
+    plt.close(fig)
