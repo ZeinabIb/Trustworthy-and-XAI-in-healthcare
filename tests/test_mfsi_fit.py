@@ -11,11 +11,11 @@ import pytest
 from mfsi_cxr.constants import FINDINGS
 from mfsi_cxr.mfsi.fit import SplitError, _platt, fit_mfsi, fit_tau, score_split
 from mfsi_cxr.mfsi.profile import profile_pos
-# plan 3 "Outputs", spelled out, plus prob_cal (y_hat v2)
 
+# plan 3 "Outputs", spelled out, plus prob_cal (y_hat v2)
 COLUMNS = ["patient_id", "study_id", "finding", "y", "y_hat", "prob", "prob_cal", "p_img_pos", "p_txt_pos",
            "d_img_pos", "d_img_neg", "d_txt_pos", "d_txt_neg", "r_img", "r_txt", "A_cos", "A_js", "R",
-           "R_mean", "stratum", "flag", "escalate", "n_studies", "n_images", "text_len"]  # plan 3 "Outputs", spelled out
+           "R_mean", "stratum", "flag", "escalate", "n_studies", "n_images", "text_len"]
 
 
 def _export(n: int, split: str, seed: int, d: int = 12) -> dict[str, np.ndarray]:
