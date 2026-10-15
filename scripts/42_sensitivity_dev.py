@@ -27,7 +27,7 @@ def main(argv: list[str] | None = None) -> int:
             "minus_default_hi", "vs_msp", "cross_modal_holds", "vs_best_distance", "changes_conclusion"]
     print(f"best distance baseline (default, macro AURC): {table['best_distance_baseline'].iloc[0]}")
     print(table[[c for c in cols if c in table]].round(4).to_string(index=False))
-    flagged = table[table["changes_conclusion"].fillna(False).astype(bool)]
+    flagged = table[table["changes_conclusion"].eq(True)]
     if len(flagged):
         print("FLAG: variants that change a headline conclusion:", flagged["variant"].tolist())
     return 0

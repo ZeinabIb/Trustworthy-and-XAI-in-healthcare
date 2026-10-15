@@ -78,7 +78,7 @@ def _distance(m: pd.DataFrame, ablations: pd.DataFrame) -> list[str]:
 
 
 def _sensitivity(ablations: pd.DataFrame) -> list[str]:
-    flagged = ablations.loc[ablations["changes_conclusion"].fillna(False).astype(bool), "variant"].tolist()
+    flagged = ablations.loc[ablations["changes_conclusion"].eq(True), "variant"].tolist()
     not_run = ablations.loc[ablations["status"] == "not run", "variant"].tolist()
     return ["## Sensitivity", "", f"- Rows changing a headline conclusion: {', '.join(flagged) or 'none'}.",
             f"- Rows not run: {', '.join(not_run) or 'none'}.", ""]
