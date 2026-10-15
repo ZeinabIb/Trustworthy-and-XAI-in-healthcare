@@ -2,6 +2,9 @@
 
 mfsi:
   embeddings: full            # which Phase 2 export: the full model's z_img and z_txt
+  reduce:                     # projection before MFSI (Zeinab 2026-10-15): embeddings are rank-deficient
+    method: pca               # pca (train-only, per modality) | none (plan as written: full 1024-d)
+    variance: 0.99            # k = smallest number of components keeping this share of train variance
   uncertain_policy: ignore    # ignore (uncertain in neither cloud) | ones (ablation: uncertain -> positive)
   ridge_factor: 1.0e-3        # lambda = factor * trace / d, added only when a matrix is not PD (logged)
   cond_max: 1.0e+10           # a shrinkage target worse than this chains to the pooled covariance

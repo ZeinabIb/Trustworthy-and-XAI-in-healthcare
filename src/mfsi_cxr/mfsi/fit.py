@@ -4,6 +4,8 @@
   log-likelihood). tau (per modality, global), y_hat thresholds, theta_R per stratum: VAL only.
 - Scoring a split needs only the fitted parameters and the train exports; its labels are copied into the
   output for later analysis but never used. The test split is scored, never looked at.
+- Each modality is first projected onto its train-PCA subspace (mfsi.reduce; reduce.py), then everything
+  below runs in k dims. k and the variance kept are saved; scoring rebuilds the projection and checks k.
 - mfsi_params.json keeps alpha / tau / thresholds; covariances are rebuilt from train when scoring
   (deterministic, seconds; avoids ~470 MB of matrices per seed).
 """
@@ -26,6 +28,7 @@ from mfsi_cxr.mfsi.distance import Gaussian
 from mfsi_cxr.mfsi.escalation import escalate, stratum_thresholds, yhat_threshold
 from mfsi_cxr.mfsi.hierarchy import coherence_flags
 from mfsi_cxr.mfsi.profile import margin, profile_pos
+from mfsi_cxr.mfsi.reduce import Projection, fit_projection
 from mfsi_cxr.mfsi.reliability import ONE_WITNESS, TWO_WITNESS, agreement, reliability
 from mfsi_cxr.utils.logging import get_logger
 
@@ -103,13 +106,15 @@ class Modality:
     gauss_pos: dict[str, Gaussian]
     gauss_neg: dict[str, Gaussian]
     info: dict[str, dict]
+    proj: Projection
 
 
 def build_modality(train: dict[str, np.ndarray], key: str, alphas, cfg: dict[str, Any],
                    name: str) -> Modality:
     _require(train, "train")
     m = cfg["mfsi"]
-    z = train[key]
+    proj = fit_projection(train[key], m["reduce"], name)
+    z = proj(train[key])
     pos, neg = cloud_masks(train["y"], m["uncertain_policy"])
     covs = fit_covariances(z, pos, neg, alphas, m["ridge_factor"], m["cond_max"], name)
     gp, gn = {}, {}
@@ -119,10 +124,11 @@ def build_modality(train: dict[str, np.ndarray], key: str, alphas, cfg: dict[str
             log.warning("%s:%s: no train positives; positive prototype = global mean", name, f)
         gp[f] = Gaussian(prototype(zp), covs.pos[f])
         gn[f] = Gaussian(prototype(z[neg[:, j]]), covs.neg[f])
-    return Modality(gp, gn, covs.info)
+    return Modality(gp, gn, covs.info, proj)
 
 
 def distances(mod: Modality, z: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    z = mod.proj(z)
     d_pos = np.stack([mod.gauss_pos[f].distance(z) for f in FINDINGS], 1)
     d_neg = np.stack([mod.gauss_neg[f].distance(z) for f in FINDINGS], 1)
     return d_pos, d_neg
@@ -159,6 +165,7 @@ def fit_mfsi(train: dict[str, np.ndarray], val: dict[str, np.ndarray], cfg: dict
         d_pos, d_neg = distances(mods[name], val[key])
         params[f"tau_{name}"] = fit_tau(d_pos, d_neg, val["y"], cfg)
         params[f"cov_{name}"] = mods[name].info
+        params[f"reduce_{name}"] = mods[name].proj.info()
         params[f"alpha_{name}"] = {f: mods[name].info[f]["alpha"] for f in FINDINGS}
         if params[f"tau_{name}"]["at_grid_boundary"]:
             log.warning("tau_%s hit the grid boundary (%.3g): STOP-AND-ASK", name,
@@ -211,6 +218,10 @@ def score_split(train: dict[str, np.ndarray], data: dict[str, np.ndarray], param
     """Long table (one row per sample x finding) with the columns of plan 3 'Outputs'."""
     alphas = {name: params[f"alpha_{name}"] for name, _ in MODALITIES}
     mods = {name: build_modality(train, key, alphas[name], cfg, name) for name, key in MODALITIES}
+    for name, _ in MODALITIES:
+        if mods[name].proj.k != params[f"reduce_{name}"]["k"]:
+            raise ValueError(f"{name}: projection rebuilt with k={mods[name].proj.k}, params say "
+                             f"{params[f'reduce_{name}']['k']} (different train export or config?)")
     s = score_arrays(mods, data, params, cfg, thresholds=params)
     n, n_findings = data["probs"].shape
     rows = {

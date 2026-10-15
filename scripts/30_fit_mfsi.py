@@ -36,6 +36,9 @@ def main(argv: list[str] | None = None) -> int:
         write_meta(out, cfg, seed)
         print(table.pivot_table(index="finding", columns="modality", values=["n_pos", "alpha"]).to_string())
         for name, _ in MODALITIES:
+            r = params[f"reduce_{name}"]
+            print(f"seed {seed} {name}: {m['reduce']['method']} {r['d_in']} -> {r['k']} dims "
+                  f"({r['variance_kept']:.4f} of train variance)")
             t = params[f"tau_{name}"]
             note = "  STOP-AND-ASK: tau at the grid boundary" if t["at_grid_boundary"] else ""
             print(f"seed {seed} tau_{name} = {t['tau']:.3g}  ECE {t['ece_before_tau1']:.4f} (tau=1) -> "
