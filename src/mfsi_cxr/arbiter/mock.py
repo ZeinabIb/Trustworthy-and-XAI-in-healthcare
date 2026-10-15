@@ -1,6 +1,6 @@
-"""Deterministic mock arbiter for the smoke profile and tests (no GPU, no model). It reads the rendered packet:
-decision = the classifier's call if shown, else the image leaning, else cannot_decide; claims cite the items it
-read. It is a stand-in for plumbing checks only, never for results."""
+"""Deterministic mock arbiter for the smoke profile and tests (no GPU, no model). It reads the rendered
+packet: decision = the classifier's call if shown, else the image leaning, else cannot_decide; claims cite
+the items it read. It is a stand-in for plumbing checks only, never for results."""
 
 from __future__ import annotations
 

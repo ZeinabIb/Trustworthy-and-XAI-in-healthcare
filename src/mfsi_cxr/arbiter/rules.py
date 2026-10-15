@@ -3,9 +3,11 @@ findings' states of the same sample, must be coherent with the approved label tr
 ancestors; No Finding rule approved 2026-10-11):
 - f present while an ancestor is absent -> violation;
 - f absent while a descendant is present -> violation (a parent denied under a present child);
-- No Finding present with any pathology present, or a pathology present with No Finding present -> violation;
-- (plan design choice, arbiter.unaddressed_reliable_parent_is_violation) f present while the CLASSIFIER calls an
-  ancestor absent with R_ancestor >= theta_ancestor, and no claim of the run cites the label-tree item.
+- No Finding present with any pathology present, or a pathology present with No Finding present ->
+  violation;
+- (plan design choice, arbiter.unaddressed_reliable_parent_is_violation) f present while the CLASSIFIER
+  calls an ancestor absent with R_ancestor >= theta_ancestor, and no claim of the run cites the label-tree
+  item.
 State of another finding = its final arbiter decision if it was also arbitrated, else the classifier's call.
 """
 
@@ -34,7 +36,8 @@ def violations(finding: str, decision: str, ctx: Context, cited_hierarchy: bool,
         return []
     out = []
     if decision == "present":
-        out += [f"{finding} present under absent ancestor {a}" for a in ancestors(finding) if not ctx.states[a]]
+        out += [f"{finding} present under absent ancestor {a}" for a in ancestors(finding)
+                if not ctx.states[a]]
         if finding == NO_FINDING:
             out += [f"No Finding present with {p} present" for p in PATHOLOGIES if ctx.states[p]]
         elif finding in PATHOLOGIES and ctx.states[NO_FINDING]:
@@ -43,5 +46,6 @@ def violations(finding: str, decision: str, ctx: Context, cited_hierarchy: bool,
             out += [f"{finding} present, classifier denies reliable ancestor {a}, label tree not addressed"
                     for a in ancestors(finding) if not ctx.classifier[a] and ctx.reliable[a]]
     else:
-        out += [f"{finding} absent under present descendant {d}" for d in descendants(finding) if ctx.states[d]]
+        out += [f"{finding} absent under present descendant {d}" for d in descendants(finding)
+                if ctx.states[d]]
     return out

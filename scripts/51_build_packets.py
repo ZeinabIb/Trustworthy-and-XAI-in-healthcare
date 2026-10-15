@@ -1,8 +1,8 @@
 """Build evidence packets for escalated cases (Phase 5).
 
-Seeded sample of arbiter.n_cases escalated (sample, finding) rows of the VAL MFSI table (first seed), packet
-variant from arbiter.packet. Writes artifacts/<profile>/arbiter/packets_val_seed{k}.jsonl (patient-derived text:
-gitignored, never shared). Prints counts only.
+Seeded sample of arbiter.n_cases escalated (sample, finding) rows of the VAL MFSI table (first seed),
+packet variant from arbiter.packet. Writes artifacts/<profile>/arbiter/packets_val_seed{k}.jsonl (patient-
+derived text: gitignored, never shared). Prints counts only.
 """
 
 from __future__ import annotations

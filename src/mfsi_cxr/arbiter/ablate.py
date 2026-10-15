@@ -1,8 +1,8 @@
-"""Check 3: per-claim evidence removal (Phase 5). For each claim of the majority-consistent run, the evidence it
-cites is replaced by "[removed]" (ids unchanged) and the 3-seed vote is repeated: decision changed (including
-to NO_MAJORITY) -> VERIFIED, unchanged -> UNVERIFIED. Claims with the same sorted cited set share one re-ask,
-so the cost is at most (distinct cited sets) x len(seeds) extra runs. VERIFIED = the arbiter used the
-evidence; it does not mean the claim is true."""
+"""Check 3: per-claim evidence removal (Phase 5). For each claim of the majority-consistent run, the evidence
+it cites is replaced by "[removed]" (ids unchanged) and the 3-seed vote is repeated: decision changed
+(including to NO_MAJORITY) -> VERIFIED, unchanged -> UNVERIFIED. Claims with the same sorted cited set
+share one re-ask, so the cost is at most (distinct cited sets) x len(seeds) extra runs. VERIFIED = the
+arbiter used the evidence; it does not mean the claim is true."""
 
 from __future__ import annotations
 

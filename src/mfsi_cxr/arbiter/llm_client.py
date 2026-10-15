@@ -1,9 +1,10 @@
-"""LLM client (Phase 5): a LOCAL OpenAI-compatible server (Ollama on the PC, vLLM on the server) or a mock, behind
-a cache. Every call is cached in artifacts/<profile>/arbiter_runs/calls.jsonl keyed by
-sha256(model_id, revision, prompt_text, seed, temperature, top_p); a cache hit costs nothing and returns the same
-text, so reruns are deterministic. Logged per call: key, packet hash, messages, raw output, latency, token
-counts, sampling params, model id and revision. The files hold patient-derived text: gitignored, never shared.
-HARD RULE: the endpoint must be a loopback address (no patient-derived text to a third-party API).
+"""LLM client (Phase 5): a LOCAL OpenAI-compatible server (Ollama on the PC, vLLM on the server) or a mock,
+behind a cache. Every call is cached in artifacts/<profile>/arbiter_runs/calls.jsonl keyed by
+sha256(model_id, revision, prompt_text, seed, temperature, top_p); a cache hit costs nothing and returns
+the same text, so reruns are deterministic. Logged per call: key, packet hash, messages, raw output,
+latency, token counts, sampling params, model id and revision. The files hold patient-derived text:
+gitignored, never shared. HARD RULE: the endpoint must be a loopback address (no patient-derived text to a
+third-party API).
 """
 
 from __future__ import annotations
@@ -36,8 +37,8 @@ class Backend(Protocol):
 def check_local(endpoint: str) -> None:
     host = urlparse(endpoint).hostname or ""
     if host not in LOOPBACK:
-        raise NonLocalEndpointError(f"arbiter endpoint {endpoint!r} is not local; patient-derived text must not "
-                                    "leave the machine")
+        raise NonLocalEndpointError(f"arbiter endpoint {endpoint!r} is not local; patient-derived text "
+                                    "must not leave the machine")
 
 
 @dataclass
@@ -99,7 +100,8 @@ class CachedClient:
         self.n_new = self.n_hit = 0
 
     def complete(self, messages: list[dict[str, str]], seed: int, packet_hash: str) -> dict[str, Any]:
-        key = call_key(self.backend.model_id, self.backend.revision, messages, seed, self.temperature, self.top_p)
+        key = call_key(self.backend.model_id, self.backend.revision, messages, seed, self.temperature,
+                       self.top_p)
         if key in self.cache:
             self.n_hit += 1
             return self.cache[key]
@@ -152,8 +154,8 @@ def make_client(cfg: dict[str, Any], cache_dir: Path) -> CachedClient:
         check_local(a["endpoint"])
         found = served_digest(a["endpoint"], a["model"])
         if not a["model_digest"]:
-            raise PinError(f"arbiter.model_digest is not set (the server reports {found!r} for {a['model']}); "
-                           "pin it in the profile first")
+            raise PinError(f"arbiter.model_digest is not set (the server reports {found!r} for "
+                           f"{a['model']}); pin it in the profile first")
         if found is not None and found != a["model_digest"]:
             raise PinError(f"served {a['model']} has digest {found}, pinned {a['model_digest']}")
         backend = OpenAICompatBackend(a["endpoint"], a["model"], a["model_digest"], a["timeout_s"])

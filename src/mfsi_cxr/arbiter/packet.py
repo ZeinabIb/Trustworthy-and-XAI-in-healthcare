@@ -1,11 +1,12 @@
-"""Evidence packet for one escalated (sample, finding) (Phase 5). A pure function of an allowlisted input record.
+"""Evidence packet for one escalated (sample, finding) (Phase 5): a pure function of an allowlisted input.
 
 HARD RULE: the arbiter never sees the image, the full chart, the index study's Findings / Impression /
-narrative, or any label. PacketInputs has no field that could carry them: the index text is the leakage-safe
-pre-read text built in Phase 1 (text_inputs.parquet), prior facts come from RadGraph of PRIOR studies only, and
-the rest are model outputs. build_packet asserts that no index-study canary token and no label appears.
+narrative, or any label. PacketInputs has no field that could carry them (labels are excluded by
+construction): the index text is the leakage-safe pre-read text built in Phase 1 (text_inputs.parquet), prior
+facts come from RadGraph of PRIOR studies only, and the rest are model outputs. build_packet also asserts
+that none of the given forbidden tokens (in tests: the index study's canary tokens) appears.
 
-Items (ids E1..En, deterministic order; order 'revealed' puts the classifier output first, 'blinded' hides it):
+Items (ids E1..En, deterministic; order 'revealed' puts the classifier output first, 'blinded' hides it):
   classifier output for the finding (calibrated probability, decision threshold, called state);
   pre-read text of the index study (truncated);
   prior-report facts about the finding, "[prior study, date-rank k] <entity> - <certainty> - <anatomy>";
@@ -27,7 +28,6 @@ RELIABILITY_MODES = ("true", "shuffled_across_patients", "shuffled_swap_directio
 ORDER_MODES = ("revealed", "blinded")
 REMOVED = "[removed]"
 CERTAINTY_RANK = {"definitely present": 0, "definitely absent": 1, "uncertain": 2}
-FORBIDDEN_KEYS = frozenset({"y", "label", "labels", "y_true", "findings_text", "impression", "report", "image"})
 
 
 @dataclass(frozen=True)
@@ -62,7 +62,7 @@ class Packet:
     case_id: str
     finding: str
     items: tuple[tuple[str, str], ...]           # (id, text)
-    roles: dict[str, str]                        # id -> role (classifier, pre_read, fact, modality, hierarchy)
+    roles: dict[str, str]                        # id -> classifier / pre_read / fact / modality / hierarchy
     variant: dict[str, str]
 
     @property
@@ -94,7 +94,8 @@ def _lean(p: float) -> str:
 
 def select_facts(facts: tuple[dict[str, Any], ...], max_facts: int) -> list[dict[str, Any]]:
     """Most recent prior first (rank 1 = most recent), then certainty, then entity text (deterministic)."""
-    order = sorted(facts, key=lambda f: (int(f["rank"]), CERTAINTY_RANK.get(f["certainty"], 9), str(f["entity"])))
+    order = sorted(facts, key=lambda f: (int(f["rank"]), CERTAINTY_RANK.get(f["certainty"], 9),
+                                         str(f["entity"])))
     return order[:max_facts]
 
 
@@ -102,8 +103,9 @@ def _modality_text(finding: str, m: Modality, swap: bool) -> str:
     p_img, p_txt = (1 - m.p_img_pos, 1 - m.p_txt_pos) if swap else (m.p_img_pos, m.p_txt_pos)
     txt = (f"text profile P(present) = {p_txt:.2f} (text {_lean(p_txt)}), margin r_txt = {m.r_txt:.2f}"
            if m.text_informative else "text has no signal for this finding")
-    return (f"Modality reliability for {finding}: image profile P(present) = {p_img:.2f} (image {_lean(p_img)}), "
-            f"margin r_img = {m.r_img:.2f}; {txt}; reliability R = {m.R:.2f} (stratum {m.stratum}).")
+    return (f"Modality reliability for {finding}: image profile P(present) = {p_img:.2f} "
+            f"(image {_lean(p_img)}), margin r_img = {m.r_img:.2f}; {txt}; reliability R = {m.R:.2f} "
+            f"(stratum {m.stratum}).")
 
 
 def build_packet(inp: PacketInputs, cfg: dict[str, Any], reliability: str = "true", order: str = "revealed",
@@ -119,9 +121,9 @@ def build_packet(inp: PacketInputs, cfg: dict[str, Any], reliability: str = "tru
     a = cfg["arbiter"]
     entries: list[tuple[str, str]] = []
     if order == "revealed":
-        entries.append(("classifier", f"Classifier for {inp.finding}: calibrated probability {inp.prob_cal:.2f}; "
-                                      f"decision threshold {inp.threshold:.2f}; the classifier calls it "
-                                      f"{_state(inp.y_hat)}."))
+        entries.append(("classifier", f"Classifier for {inp.finding}: calibrated probability "
+                                      f"{inp.prob_cal:.2f}; decision threshold {inp.threshold:.2f}; "
+                                      f"the classifier calls it {_state(inp.y_hat)}."))
     text = (inp.index_text or "").strip()
     text = text[: a["index_text_chars"]] + (" ..." if len(text) > a["index_text_chars"] else "")
     entries.append(("pre_read", f"Pre-read text of the current study (indication / history / technique): "
@@ -130,8 +132,8 @@ def build_packet(inp: PacketInputs, cfg: dict[str, Any], reliability: str = "tru
     if facts:
         for f in facts:
             anatomy = f.get("anatomy") or "no anatomy given"
-            entries.append(("fact", f"[prior study, date-rank {int(f['rank'])}] {f['entity']} - {f['certainty']} - "
-                                    f"{anatomy}"))
+            entries.append(("fact", f"[prior study, date-rank {int(f['rank'])}] {f['entity']} - "
+                                    f"{f['certainty']} - {anatomy}"))
     else:
         entries.append(("fact", f"No prior-report facts about {inp.finding}."))
     if reliability != "absent":
@@ -148,8 +150,8 @@ def build_packet(inp: PacketInputs, cfg: dict[str, Any], reliability: str = "tru
         parts.append(f"parent finding {PARENT[inp.finding]}: not available")
     if inp.children:
         parts.append("child findings: " + ", ".join(f"{c} {_state(s)}" for c, s in inp.children))
-    entries.append(("hierarchy", "Label tree: " + ("; ".join(parts) if parts else "no parent or child findings")
-                    + "."))
+    tree = "; ".join(parts) if parts else "no parent or child findings"
+    entries.append(("hierarchy", f"Label tree: {tree}."))
     items = tuple((f"E{k}", t) for k, (_, t) in enumerate(entries, start=1))
     roles = {f"E{k}": r for k, (r, _) in enumerate(entries, start=1)}
     packet = Packet(inp.case_id, inp.finding, items, roles, {"reliability": reliability, "order": order})

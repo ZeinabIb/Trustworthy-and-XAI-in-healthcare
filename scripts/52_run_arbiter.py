@@ -1,9 +1,10 @@
-"""Run the verified arbiter on the packets of a split (Phase 5): 3-seed vote, hierarchy rule, per-claim evidence
-removal. Resumable: cases with a result are skipped; every LLM call is cached. Refuses a non-local endpoint and
-unpinned or mismatching weights.
+"""Run the verified arbiter on the packets of a split (Phase 5): 3-seed vote, hierarchy rule, per-claim
+evidence removal. Resumable: cases with a result are skipped; every LLM call is cached. Refuses a non-local
+endpoint and unpinned or mismatching weights.
 
-Reads artifacts/<profile>/arbiter/packets_val_seed{k}.jsonl; writes results_val_seed{k}.jsonl (patient-derived
-text, gitignored) and outputs/<profile>/tables/arbiter_dev_{cases,summary}.csv (no text). Prints counts only.
+Reads artifacts/<profile>/arbiter/packets_val_seed{k}.jsonl; writes results_val_seed{k}.jsonl (patient-
+derived text, gitignored) and outputs/<profile>/tables/arbiter_dev_{cases,summary}.csv (no text). Prints
+counts only.
 """
 
 from __future__ import annotations

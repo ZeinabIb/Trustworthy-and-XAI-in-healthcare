@@ -1,10 +1,10 @@
 """Escalated cases -> PacketInputs (Phase 5), from artifacts only.
 
-Sources: the MFSI table of the split (escalate flag, classifier and MFSI outputs; the label column `y` is never
-copied), text_inputs.parquet (the leakage-safe index pre-read text and the ordered prior study ids),
-radgraph_facts.parquet (facts of PRIOR studies; a fact is used for finding f if f is in its `findings`), and
-mfsi_params (y_hat rule, theta_R). Prior rank 1 = the most recent prior. Cases are a seeded sample of the
-escalated (sample, finding) rows, ordered by sample then label-tree order (roots first), so a child's
+Sources: the MFSI table of the split (escalate flag, classifier and MFSI outputs; the label column `y` is
+never copied), text_inputs.parquet (the leakage-safe index pre-read text and the ordered prior study ids),
+radgraph_facts.parquet (facts of PRIOR studies; a fact is used for finding f if f is in its `findings`),
+and mfsi_params (y_hat rule, theta_R). Prior rank 1 = the most recent prior. Cases are a seeded sample of
+the escalated (sample, finding) rows, ordered by sample then label-tree order (roots first), so a child's
 hierarchy check can use its ancestors' final decisions when they were arbitrated first.
 """
 
@@ -40,8 +40,9 @@ def select_cases(table: pd.DataFrame, n_cases: int, seed: int) -> pd.DataFrame:
 
 
 def _modality(row: pd.Series, finding: str, informative: dict[str, bool]) -> Modality:
-    return Modality(float(row["p_img_pos"]), float(row["p_txt_pos"]), float(row["r_img"]), float(row["r_txt"]),
-                    float(row["R"]), str(row["stratum"]), bool(informative.get(finding, False)))
+    return Modality(float(row["p_img_pos"]), float(row["p_txt_pos"]), float(row["r_img"]),
+                    float(row["r_txt"]), float(row["R"]), str(row["stratum"]),
+                    bool(informative.get(finding, False)))
 
 
 def _stable_int(*parts: str) -> int:
@@ -85,14 +86,14 @@ class CaseBuilder:
                             parent=parent, children=children)
 
     def donor(self, study_id: str, finding: str, patient_id: str, seed: int) -> Modality:
-        """Modality info of another patient's sample for the same finding (shuffled_across_patients control)."""
+        """Modality info of another patient's sample, same finding (shuffled_across_patients control)."""
         g = self.by_finding[finding]
         g = g[g["patient_id"] != patient_id]
         pick = np.random.default_rng([seed, _stable_int(study_id, finding)]).integers(len(g))
         return _modality(g.iloc[int(pick)], finding, self.informative)
 
     def context(self, study_id: str, final: dict[str, bool]) -> Context:
-        """Hierarchy context: the classifier's calls, overridden by final decisions already made for this sample."""
+        """Hierarchy context: classifier calls, overridden by final decisions already made for this sample."""
         classifier = {f: bool(self.rows.loc[(study_id, f), "y_hat"]) for f in FINDINGS}
         reliable = {f: float(self.rows.loc[(study_id, f), "R"]) >= self.theta[f] for f in FINDINGS}
         return Context({**classifier, **final}, classifier, reliable)

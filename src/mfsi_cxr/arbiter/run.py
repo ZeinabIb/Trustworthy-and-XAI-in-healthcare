@@ -1,10 +1,10 @@
-"""Arbiter pipeline for one case (Phase 5): 3 voting runs -> vote -> hierarchy rule -> per-claim evidence removal
--> ArbiterResult. The model output is untrusted: nothing is shown unless every check passes, and then every
-claim is shown with its tag (unverified claims are never hidden).
+"""Arbiter pipeline for one case (Phase 5): 3 voting runs -> vote -> hierarchy rule -> per-claim evidence
+removal -> ArbiterResult. The model output is untrusted: nothing is shown unless every check passes, and
+then every claim is shown with its tag (unverified claims are never hidden).
 
-Check 3 (per-claim evidence removal, arbiter/ablate.py) uses the majority-consistent run: the first run whose
-decision equals the majority. VERIFIED means the arbiter USED that evidence, not that the claim is medically
-true; the words true / correct are never used for these tags.
+Check 3 (per-claim evidence removal, arbiter/ablate.py) uses the majority-consistent run: the first run
+whose decision equals the majority. VERIFIED means the arbiter USED that evidence, not that the claim is
+medically true; the words true / correct are never used for these tags.
 """
 
 from __future__ import annotations
@@ -64,7 +64,7 @@ def one_run(client: CachedClient, cfg: dict[str, Any], packet: Packet, seed: int
         try:
             ans = prompts.parse(rec["raw"], packet, a["max_claims"])
             return RunOutput(seed, ans.decision, [c.model_dump() for c in ans.claims], n)
-        except prompts.InvalidAnswer as err:
+        except prompts.InvalidAnswerError as err:
             error = str(err)
             if attempt < a["retries_invalid"]:
                 msgs = prompts.repair_messages(cfg, prompts.messages(cfg, packet), rec["raw"], error)

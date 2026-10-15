@@ -1,5 +1,5 @@
-"""Prompt and output schema (Phase 5). The system prompt is a versioned, hashed file (configs/prompts/); the user
-message is the finding plus the rendered evidence packet. The answer is UNTRUSTED: it is parsed strictly
+"""Prompt and output schema (Phase 5). The system prompt is a versioned, hashed file (configs/prompts/); the
+user message is the finding plus the rendered evidence packet. The answer is UNTRUSTED: it is parsed strictly
 (pydantic) and every cited id must exist in the packet."""
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ class Answer(BaseModel):
     claims: list[Claim] = Field(default_factory=list)
 
 
-class InvalidAnswer(ValueError):
+class InvalidAnswerError(ValueError):
     """The model's output did not satisfy the schema or cited ids outside the packet."""
 
 
@@ -54,7 +54,8 @@ def messages(cfg: dict[str, Any], packet: Packet) -> list[dict[str, str]]:
     return [{"role": "system", "content": load_prompt(cfg)}, {"role": "user", "content": user}]
 
 
-def repair_messages(cfg: dict[str, Any], base: list[dict[str, str]], raw: str, error: str) -> list[dict[str, str]]:
+def repair_messages(cfg: dict[str, Any], base: list[dict[str, str]], raw: str,
+                    error: str) -> list[dict[str, str]]:
     repair = load_prompt(cfg, "repair_file").replace("{error}", error[:300])
     return [*base, {"role": "assistant", "content": raw}, {"role": "user", "content": repair}]
 
@@ -63,7 +64,7 @@ def _extract_json(raw: str) -> str:
     """The first {...} block (models sometimes wrap JSON in prose or code fences)."""
     start, end = raw.find("{"), raw.rfind("}")
     if start < 0 or end <= start:
-        raise InvalidAnswer("no JSON object in the answer")
+        raise InvalidAnswerError("no JSON object in the answer")
     return raw[start:end + 1]
 
 
@@ -71,16 +72,16 @@ def parse(raw: str, packet: Packet, max_claims: int) -> Answer:
     try:
         answer = Answer.model_validate(json.loads(_extract_json(raw)))
     except (json.JSONDecodeError, ValidationError) as err:
-        raise InvalidAnswer(str(err).splitlines()[0]) from err
+        raise InvalidAnswerError(str(err).splitlines()[0]) from err
     if len(answer.claims) > max_claims:
-        raise InvalidAnswer(f"{len(answer.claims)} claims > {max_claims}")
+        raise InvalidAnswerError(f"{len(answer.claims)} claims > {max_claims}")
     known = set(packet.ids)
     for c in answer.claims:
         unknown = [x for x in c.cites if x not in known]
         if unknown:
-            raise InvalidAnswer(f"claim {c.id} cites ids not in the evidence list: {unknown}")
+            raise InvalidAnswerError(f"claim {c.id} cites ids not in the evidence list: {unknown}")
     if len({c.id for c in answer.claims}) != len(answer.claims):
-        raise InvalidAnswer("duplicate claim ids")
+        raise InvalidAnswerError("duplicate claim ids")
     return answer
 
 
