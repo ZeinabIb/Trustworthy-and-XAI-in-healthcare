@@ -87,3 +87,52 @@ def reliability_figure(probs: dict[str, np.ndarray], label: np.ndarray, used: np
     fig.tight_layout()
     fig.savefig(path, dpi=120, facecolor=SURFACE)
     plt.close(fig)
+
+
+def volume_figure(bins, path: Path, title: str) -> None:
+    """One panel per volume variable: mean R per quantile bin, each finding a thin grey line, the mean over
+    findings in the series colour (single highlighted series; no 14-colour legend)."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    variables = list(dict.fromkeys(bins["variable"]))
+    fig, axes = plt.subplots(1, len(variables), figsize=(4 * len(variables), 3.6), sharey=True,
+                             facecolor=SURFACE, squeeze=False)
+    for ax, v in zip(axes[0], variables, strict=True):
+        g = bins[bins["variable"] == v]
+        for _, gf in g.groupby("finding"):
+            ax.plot(gf["bin"], gf["mean_R"], color=GRID, linewidth=1)
+        mean = g.groupby("bin")["mean_R"].mean()
+        ax.plot(mean.index, mean.to_numpy(), color=SLOTS[0], linewidth=2, marker="o", markersize=4,
+                label="mean over findings")
+        ax.set_title(v, fontsize=10, color=INK)
+        ax.set_xlabel("quantile bin (low to high)", color=MUTED, fontsize=8)
+        ax.set_facecolor(SURFACE)
+        ax.tick_params(colors=MUTED, labelsize=8)
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
+    axes[0, 0].set_ylabel("mean R", color=MUTED, fontsize=8)
+    fig.suptitle(title, color=INK)
+    fig.tight_layout()
+    fig.savefig(path, dpi=120, facecolor=SURFACE)
+    plt.close(fig)
+
+
+def deciles_figure(dec, path: Path, title: str) -> None:
+    """One panel per finding: accuracy within each decile of R (calibration of R)."""
+    plt, fig, axes = _grid(len(FINDINGS))
+    for ax, f in zip(axes.flat, FINDINGS, strict=False):
+        g = dec[dec["finding"] == f]
+        ax.plot(g["decile"], g["accuracy"], color=SLOTS[0], linewidth=2, marker="o", markersize=4)
+        ax.set_title(f, fontsize=9, color=INK)
+        ax.set_ylim(0, 1.02)
+    for ax in axes[-1]:
+        ax.set_xlabel("decile of R (low to high)", color=MUTED, fontsize=8)
+    for ax in axes[:, 0]:
+        ax.set_ylabel("accuracy", color=MUTED, fontsize=8)
+    fig.suptitle(title, color=INK)
+    fig.tight_layout()
+    fig.savefig(path, dpi=120, facecolor=SURFACE)
+    plt.close(fig)

@@ -42,3 +42,7 @@ eval:
     - {variable: profile calibration (2026-10-15), variant: "plan tau: global, ECE, no offset", set: {mfsi.tau_objective: ece, mfsi.offset: false, mfsi.tau_scope: global}}
     - {variable: theta_R scope (2026-10-15), variant: per stratum, set: {mfsi.theta_scope: stratum}}
     - {variable: y_hat rule (2026-10-15), variant: Youden + coherent MSP, set: {mfsi.yhat_rule: youden_coherent}, changes_correctness: true}
+  controls:                       # validity controls (plan 4)
+    confound_bins: 4              # quantile bins of each volume variable (ties merged)
+    confound_strong: 0.3          # |Spearman(R, variable)| at or above this in any finding -> rank-normalised R
+    uncertain_min: 5              # uncertain-label check only for findings with >= this many y = -1 rows

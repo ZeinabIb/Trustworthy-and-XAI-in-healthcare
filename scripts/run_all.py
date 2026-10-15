@@ -38,6 +38,7 @@ STEPS: list[tuple[str, list[str], tuple[str, ...]]] = [
     ("32_agreement_spread.py", [], ALL),
     ("40_eval_rq1_dev.py", [], ALL),
     ("42_sensitivity_dev.py", [], ALL),
+    ("43_controls_dev.py", [], ALL),
     ("44_added_value_dev.py", [], ALL),
 ]
 

@@ -15,26 +15,11 @@ import numpy as np
 import pandas as pd
 
 from mfsi_cxr.constants import FINDINGS
+from mfsi_cxr.eval.controls import spread_table
 from mfsi_cxr.utils.cli import base_parser, config_from_args
 from mfsi_cxr.utils.io import artifact_dir, output_dir, read_table, write_meta
 
 SERIES, SURFACE, INK, MUTED = "#2a78d6", "#fcfcfb", "#0b0b0b", "#52514e"  # dataviz reference palette
-
-
-def _corr(a: np.ndarray, b: np.ndarray) -> float:
-    return float(np.corrcoef(a, b)[0, 1]) if a.std() > 0 and b.std() > 0 else float("nan")
-
-
-def spread_table(val: pd.DataFrame) -> pd.DataFrame:
-    rows = []
-    for f in FINDINGS:
-        g = val[val["finding"] == f]
-        a = g["A_cos"].to_numpy()
-        rows.append({"finding": f, "stratum": g["stratum"].iloc[0], "n": len(g), "mean": a.mean(),
-                     "sd": a.std(ddof=1), "p5": np.quantile(a, 0.05), "p95": np.quantile(a, 0.95),
-                     "corr_A_min_margin": _corr(a, np.minimum(g["r_img"], g["r_txt"]).to_numpy()),
-                     "corr_p_img_p_txt": _corr(g["p_img_pos"].to_numpy(), g["p_txt_pos"].to_numpy())})
-    return pd.DataFrame(rows)
 
 
 def plot(val: pd.DataFrame, table: pd.DataFrame, path: Path) -> None:
