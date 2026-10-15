@@ -24,10 +24,15 @@ from typing import Any
 
 from mfsi_cxr.constants import FINDINGS, PARENT
 
-RELIABILITY_MODES = ("true", "shuffled_across_patients", "shuffled_swap_direction", "absent")
+RELIABILITY_MODES = ("true", "shuffled_across_patients", "shuffled_swap_direction", "swap_modalities",
+                     "absent")
 ORDER_MODES = ("revealed", "blinded")
 REMOVED = "[removed]"
 CERTAINTY_RANK = {"definitely present": 0, "definitely absent": 1, "uncertain": 2}
+
+
+class NotApplicableError(ValueError):
+    """A packet control does not apply to this case (e.g. a modality swap for a one-witness finding)."""
 
 
 @dataclass(frozen=True)
@@ -140,6 +145,10 @@ def build_packet(inp: PacketInputs, cfg: dict[str, Any], reliability: str = "tru
         m = donor if reliability == "shuffled_across_patients" else inp.modality
         if m is None:
             raise ValueError("shuffled_across_patients needs a donor case")
+        if reliability == "swap_modalities":  # plan 6 B3: image marked as the text was, and vice versa
+            if not m.text_informative:
+                raise NotApplicableError(f"{inp.finding}: no text signal, nothing to swap")
+            m = Modality(m.p_txt_pos, m.p_img_pos, m.r_txt, m.r_img, m.R, m.stratum, True)
         entries.append(("modality", _modality_text(inp.finding, m, reliability == "shuffled_swap_direction")))
     parts = []
     if inp.parent is not None:

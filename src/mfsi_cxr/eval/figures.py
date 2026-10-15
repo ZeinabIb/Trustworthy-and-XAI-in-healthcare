@@ -167,3 +167,84 @@ def degrade_figure(summary, path: Path, title: str) -> None:
     fig.tight_layout()
     fig.savefig(path, dpi=120, facecolor=SURFACE)
     plt.close(fig)
+
+
+def flip_rates_figure(flips, noise: float, path: Path, title: str) -> None:
+    """Dot plot: post-vote decision flip rate per packet condition with 95% CI; dashed line = re-run noise
+    floor (single series; the noise-floor row is the reference)."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    f = flips[flips["condition"].isin(["rerun", "shuffle", "swap_modalities", "flip_leaning", "absent",
+                                       "blinded"]) & flips["n"].gt(0)]
+    fig, ax = plt.subplots(figsize=(7, 0.5 * len(f) + 1.5), facecolor=SURFACE)
+    ax.set_facecolor(SURFACE)
+    y = np.arange(len(f))
+    lo = (f["flip_rate"] - f["lo"]).clip(lower=0)
+    hi = (f["hi"] - f["flip_rate"]).clip(lower=0)
+    ax.errorbar(f["flip_rate"], y, xerr=[lo, hi], fmt="o", color=SLOTS[0], markersize=6, capsize=0)
+    ax.axvline(noise, color=MUTED, linestyle="--", linewidth=1)
+    ax.text(noise, len(f) - 0.4, " re-run noise floor", color=MUTED, fontsize=8, va="bottom")
+    ticks = [f"{c} (n={n})" for c, n in zip(f["condition"], f["n"], strict=True)]
+    ax.set_yticks(y, ticks, color=INK, fontsize=9)
+    ax.invert_yaxis()
+    ax.set_xlim(0, 1)
+    ax.set_xlabel("decision flip rate vs the main run", color=MUTED, fontsize=9)
+    ax.grid(axis="x", color=GRID, linewidth=0.6)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    ax.set_title(title, color=INK, fontsize=10)
+    fig.tight_layout()
+    fig.savefig(path, dpi=120, facecolor=SURFACE)
+    plt.close(fig)
+
+
+def cannot_decide_figure(table, path: Path, title: str) -> None:
+    """cannot_decide rate by decile of the R shown, main packet vs shuffled packet (two series, legend)."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(6, 3.6), facecolor=SURFACE)
+    ax.set_facecolor(SURFACE)
+    for (name, g), color in zip(table.groupby("packet", sort=True), SLOTS, strict=False):
+        ax.plot(g["R_decile"], g["cannot_decide_rate"], color=color, linewidth=2, marker="o", markersize=4,
+                label=f"{name} packet")
+    ax.set_xlabel("decile of the R shown (low to high)", color=MUTED, fontsize=9)
+    ax.set_ylabel("cannot_decide rate", color=MUTED, fontsize=9)
+    ax.set_ylim(0, 1)
+    ax.grid(color=GRID, linewidth=0.6)
+    ax.legend(frameon=False, fontsize=9, labelcolor=INK)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    ax.set_title(title, color=INK, fontsize=10)
+    fig.tight_layout()
+    fig.savefig(path, dpi=120, facecolor=SURFACE)
+    plt.close(fig)
+
+
+def claims_verified_figure(per_finding, path: Path, title: str) -> None:
+    """Horizontal bars: share of claims tagged VERIFIED per finding (n claims in the label)."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    t = per_finding.sort_values("verified_share")
+    fig, ax = plt.subplots(figsize=(7, 0.4 * len(t) + 1.5), facecolor=SURFACE)
+    ax.set_facecolor(SURFACE)
+    ax.barh(np.arange(len(t)), t["verified_share"].fillna(0), color=SLOTS[0], height=0.6)
+    ticks = [f"{f} ({int(c)} claims)" for f, c in zip(t["finding"], t["claims"], strict=True)]
+    ax.set_yticks(np.arange(len(t)), ticks, fontsize=9, color=INK)
+    ax.set_xlim(0, 1)
+    ax.set_xlabel("share of claims VERIFIED (the arbiter used the cited evidence)", color=MUTED, fontsize=9)
+    ax.grid(axis="x", color=GRID, linewidth=0.6)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    ax.set_title(title, color=INK, fontsize=10)
+    fig.tight_layout()
+    fig.savefig(path, dpi=120, facecolor=SURFACE)
+    plt.close(fig)

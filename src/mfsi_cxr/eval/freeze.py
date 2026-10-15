@@ -60,7 +60,8 @@ def frozen_inputs(cfg: dict[str, Any]) -> list[Path]:
 
 
 def config_files() -> list[Path]:
-    return sorted(CONFIG_DIR.rglob("*.yaml"))
+    """Every config and prompt file (a changed prompt is a changed method)."""
+    return sorted([*CONFIG_DIR.rglob("*.yaml"), *CONFIG_DIR.rglob("*.txt")])
 
 
 def uncommitted() -> list[str]:
@@ -84,8 +85,18 @@ def write_manifest(cfg: dict[str, Any]) -> Path:
     return path
 
 
-def check_frozen(cfg: dict[str, Any], rerun_reason: str | None = None) -> TestAccess:
-    """Verify the freeze; raise FreezeError listing every problem."""
+def openings(cfg: dict[str, Any], purpose: str) -> list[dict[str, Any]]:
+    """Recorded test openings for one final analysis ('rq1' = 41, 'rq2' = 61); old records count as rq1."""
+    path = artifact_dir(cfg) / OPENED
+    if not path.exists():
+        return []
+    log = json.loads(path.read_text(encoding="utf-8"))
+    return [o for o in log["openings"] if o.get("purpose", "rq1") == purpose]
+
+
+def check_frozen(cfg: dict[str, Any], rerun_reason: str | None = None, purpose: str = "rq1") -> TestAccess:
+    """Verify the freeze; raise FreezeError listing every problem. Each final analysis (purpose) opens the
+    test split once; a further opening for the same purpose needs a logged reason."""
     path = artifact_dir(cfg) / MANIFEST
     if not path.exists():
         raise FreezeError(f"{MANIFEST} missing: run scripts/39_freeze.py first")
@@ -106,18 +117,20 @@ def check_frozen(cfg: dict[str, Any], rerun_reason: str | None = None) -> TestAc
     for p in frozen_inputs(cfg):
         if not p.exists() or sha256(p) != m["inputs"].get(p.name):
             problems.append(f"frozen input changed or missing: {p.name}")
-    opened = artifact_dir(cfg) / OPENED
-    if opened.exists() and not rerun_reason:
-        problems.append(f"the test split was already opened ({OPENED}); a rerun needs --rerun-reason")
+    if openings(cfg, purpose) and not rerun_reason:
+        problems.append(f"the test split was already opened for {purpose} ({OPENED}); a rerun needs "
+                        "--rerun-reason")
     if problems:
         raise FreezeError("; ".join(problems))
     return TestAccess(m)
 
 
-def record_opening(cfg: dict[str, Any], access: TestAccess, rerun_reason: str | None) -> Path:
+def record_opening(cfg: dict[str, Any], access: TestAccess, rerun_reason: str | None,
+                   purpose: str = "rq1") -> Path:
     path = artifact_dir(cfg) / OPENED
     log = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"openings": []}
     log["openings"].append({"utc": datetime.datetime.now(datetime.UTC).isoformat(),
-                            "commit": access.manifest["commit"], "reason": rerun_reason or "first opening"})
+                            "commit": access.manifest["commit"], "purpose": purpose,
+                            "reason": rerun_reason or "first opening"})
     path.write_text(json.dumps(log, indent=2), encoding="utf-8")
     return path

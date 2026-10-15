@@ -16,6 +16,8 @@ arbiter:
   model: mock
   endpoint: null
   n_cases: 8
+  experiments:
+    n_min_cases: 6
 eval:
   bootstrap_B: 50
 preflight:

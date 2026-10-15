@@ -46,6 +46,7 @@ ALLOWED_PROFILE_KEYS: frozenset[str] = frozenset(
         "arbiter.endpoint",
         "arbiter.model_digest",   # pins the weights of arbiter.model (DECISIONS 2026-10-15)
         "arbiter.n_cases",        # size of the Phase 5 test run
+        "arbiter.experiments.n_min_cases",  # size of the Phase 6 sample
         "eval.bootstrap_B",
         "preflight.min_free_disk_gb",
         "preflight.min_free_gpu_gb",

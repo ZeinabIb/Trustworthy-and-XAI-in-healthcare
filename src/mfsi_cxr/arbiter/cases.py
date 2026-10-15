@@ -39,6 +39,36 @@ def select_cases(table: pd.DataFrame, n_cases: int, seed: int) -> pd.DataFrame:
     return esc.assign(_o=esc["finding"].map(order)).sort_values(["study_id", "_o"]).drop(columns="_o")
 
 
+def select_cases_by_patient(table: pd.DataFrame, n_min: int,
+                            seed: int) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Pre-stated Phase 6 sample (DECISIONS 2026-10-15): patients with escalated cases in a seeded random
+    order, each with ALL its escalated findings, until >= n_min cases. Returns (cases, sampling summary)."""
+    esc = table.loc[table["escalate"].astype(bool), list(USED_COLUMNS)].reset_index(drop=True)
+    patients = np.array(sorted(esc["patient_id"].unique()))
+    order = patients[np.random.default_rng(seed).permutation(len(patients))]
+    counts = esc.groupby("patient_id").size()
+    taken = np.cumsum(counts.loc[order].to_numpy())
+    k = int(np.searchsorted(taken, n_min) + 1) if len(order) else 0
+    chosen = set(order[:k])
+    sample = esc[esc["patient_id"].isin(chosen)]
+    rank = {f: j for j, f in enumerate(topological_order())}
+    sample = sample.assign(_o=sample["finding"].map(rank)).sort_values(["study_id", "_o"]).drop(columns="_o")
+    info = {"n_cases": len(sample), "n_escalated": len(esc), "case_fraction": len(sample) / max(len(esc), 1),
+            "n_patients": len(chosen), "n_patients_escalated": len(patients),
+            "patient_fraction": len(chosen) / max(len(patients), 1), "seed": seed, "n_min": n_min}
+    return sample, info
+
+
+def derangement(n: int, rng: np.random.Generator) -> np.ndarray | None:
+    """A permutation with no fixed point (None for n < 2), by seeded rejection sampling."""
+    if n < 2:
+        return None
+    while True:
+        perm = rng.permutation(n)
+        if not np.any(perm == np.arange(n)):
+            return perm
+
+
 def _modality(row: pd.Series, finding: str, informative: dict[str, bool]) -> Modality:
     return Modality(float(row["p_img_pos"]), float(row["p_txt_pos"]), float(row["r_img"]),
                     float(row["r_txt"]), float(row["R"]), str(row["stratum"]),
