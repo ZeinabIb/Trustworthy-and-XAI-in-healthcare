@@ -133,3 +133,60 @@ def expectation(modality: str, summary: list[dict[str, Any]]) -> dict[str, Any]:
     own, other = ("r_img", "r_txt") if modality == "image" else ("r_txt", "r_img")
     return {"own_margin_falls": bool(by[own]["change_hi"] < 0),
             "other_margin_unchanged": bool(by[other]["change_lo"] <= 0 <= by[other]["change_hi"])}
+
+
+def run(cfg: dict[str, Any], split: str) -> tuple[Any, Any]:
+    """Re-extract `split` clean and per degradation through the frozen full model (fp32) for every seed, score
+    MFSI with the frozen parameters; returns (summary, per-finding) DataFrames. Degraded exports are saved
+    under artifacts/<profile>/degrade/. The clean pass is checked against the Phase 2 export."""
+    import json
+
+    import pandas as pd
+
+    from mfsi_cxr.data.datasets import SampleDataset
+    from mfsi_cxr.mfsi.fit import load_split, score_split
+    from mfsi_cxr.models.extract import run_export
+    from mfsi_cxr.models.train import load_model
+    from mfsi_cxr.utils.device import device_from_config
+    from mfsi_cxr.utils.io import artifact_dir, check_artifact, write_meta
+
+    dcfg = cfg["eval"]["degrade"]
+    device = device_from_config(cfg)
+    run_cfg = copy.deepcopy(cfg)
+    run_cfg["train"]["precision"] = "fp32"
+    out_dir = artifact_dir(cfg) / "degrade"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    summary, per_finding = [], []
+    for seed in cfg["train"]["seeds"]:
+        ppath = artifact_dir(cfg) / f"mfsi_params_seed{seed}.json"
+        check_artifact(ppath, cfg)
+        params = json.loads(ppath.read_text(encoding="utf-8"))
+        train, export = load_split(cfg, "train", seed), load_split(cfg, split, seed)
+        model = load_model(run_cfg, cfg["mfsi"]["embeddings"], seed, device)
+        base = SampleDataset(run_cfg, split)
+        variants = [{"name": "clean", "modality": "none", "kind": "none", "param": None}, *dcfg["variants"]]
+        tables = {}
+        for v in variants:
+            ds = DegradedDataset(base, v["kind"], v["param"], dcfg["seed"], dcfg["history_sections"])
+            emb, _ = run_export(model, ds, run_cfg, device)
+            if not np.array_equal(emb["study_id"], export["study_id"]):
+                raise RuntimeError(f"{v['name']}: re-extracted rows differ from the {split} export")
+            path = out_dir / f"emb_{split}_seed{seed}_{v['name']}.npz"
+            np.savez(path, **emb)
+            write_meta(path, cfg, seed, split=split, degradation=v)
+            if v["name"] == "clean":
+                gap = max(float(np.abs(emb[k] - export[k]).max()) for k in ("z_img", "z_txt"))
+                if gap > dcfg["clean_tolerance"]:
+                    raise RuntimeError(f"clean re-extraction differs from the Phase 2 export "
+                                       f"(max |dz| {gap:.2e})")
+            tables[v["name"]] = score_split(train, emb, params, cfg)
+        for v in variants[1:]:
+            rows = summarise(tables["clean"], tables[v["name"]], export["patient_id"], cfg)
+            exp = expectation(v["modality"], rows)
+            summary += [{"seed": seed, "variant": v["name"], "modality": v["modality"], **r, **exp}
+                        for r in rows]
+            for f, g in tables[v["name"]].groupby("finding", sort=False):
+                c = tables["clean"][tables["clean"]["finding"] == f]
+                per_finding.append({"seed": seed, "variant": v["name"], "finding": f,
+                                    **{f"change_{m}": float(g[m].mean() - c[m].mean()) for m in METRICS}})
+    return pd.DataFrame(summary), pd.DataFrame(per_finding)

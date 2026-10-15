@@ -21,6 +21,7 @@ from scipy.special import expit
 from mfsi_cxr.constants import FINDINGS
 from mfsi_cxr.eval.baselines import all_scores
 from mfsi_cxr.eval.calibration import ece_mce
+from mfsi_cxr.eval.freeze import TestAccess
 from mfsi_cxr.eval.rq1 import Inputs, evaluate
 from mfsi_cxr.mfsi import yhat
 from mfsi_cxr.mfsi.fit import load_split, tau_targets
@@ -43,10 +44,14 @@ class SplitData:
     sparse: list[np.ndarray] = field(default_factory=list)      # dev path: (n_folds, L) sparse-fold flags
 
 
-def collect(cfg: dict[str, Any], split: str, seeds: list[int], oof: bool = False) -> SplitData:
-    """All seeds of a split. oof=True (dev, val only): out-of-fold y_hat / q / MSP."""
+def collect(cfg: dict[str, Any], split: str, seeds: list[int], oof: bool = False,
+            access: TestAccess | None = None) -> SplitData:
+    """All seeds of a split. oof=True (dev, val only): out-of-fold y_hat / q / MSP. The test split is read
+    only with the TestAccess token from freeze.check_frozen (scripts/41_run_rq1_final.py)."""
     if oof and split != "val":
         raise ValueError("the out-of-fold dev path is for val only")
+    if split == "test" and not isinstance(access, TestAccess):
+        raise PermissionError("the test split is read only by 41_run_rq1_final after the freeze check")
     raw, tables, y_hat, params_all = [], [], [], []
     for seed in seeds:
         path = artifact_dir(cfg) / f"mfsi_params_seed{seed}.json"
@@ -79,11 +84,30 @@ def collect(cfg: dict[str, Any], split: str, seeds: list[int], oof: bool = False
             y_hat.append(yh)
             sparse.append(sp)
     else:
-        q = [t["prob_cal"].to_numpy().reshape(n, len(FINDINGS)) for t in tables]
+        q = []
+        for i, (seed, (_, data, table, params)) in enumerate(zip(seeds, raw, strict=True)):
+            if cfg["mfsi"]["yhat_rule"] == params["yhat"]["rule"]:
+                q.append(table["prob_cal"].to_numpy().reshape(n, len(FINDINGS)))
+            else:  # sensitivity rule: fitted on ALL val scored rows of this seed, applied to this split
+                qq, yh = refit_rule(cfg, seed, data["probs"])
+                q.append(qq)
+                y_hat[i] = yh
     scores = [all_scores(train, data, table, cfg, params, qq, q)
               for (train, data, table, params), qq in zip(raw, q, strict=True)]
     return SplitData(split, list(seeds), scores, y_hat, tables, ref["y"], ref["patient_id"],
                      params_all[0]["strata"], probs, q, folds, sparse)
+
+
+def refit_rule(cfg: dict[str, Any], seed: int, probs: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """(q, y_hat) of cfg's y_hat rule fitted on all val scored rows of `seed`, applied to `probs` (final path
+    of a rule that differs from the frozen one, e.g. the youden_coherent sensitivity row)."""
+    m = cfg["mfsi"]
+    val = load_split(cfg, "val", seed)
+    label, used = tau_targets(val["y"], m["uncertain_policy"])
+    per = [yhat.fit_rule(m["yhat_rule"], val["probs"][used[:, j], j], label[used[:, j], j], m["platt_eps"])
+           for j in range(len(FINDINGS))]
+    q, y_hat, _ = yhat.apply_all(m["yhat_rule"], per, probs, m["platt_eps"])
+    return q, y_hat
 
 
 def sparse_fold_table(d: SplitData) -> pd.DataFrame:

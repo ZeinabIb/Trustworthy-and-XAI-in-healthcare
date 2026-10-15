@@ -49,6 +49,7 @@ eval:
   degrade:                        # degrade-one-modality test (plan 4 control 3; face validity only)
     seed: 0
     history_sections: [section_clinical_history, section_history]   # dropped by drop_history (index text)
+    clean_tolerance: 1.0e-5       # clean re-extraction must match the Phase 2 export (fp32, eval mode)
     variants:
       - {name: blur_s1, modality: image, kind: blur, param: 1}
       - {name: blur_s2, modality: image, kind: blur, param: 2}
