@@ -9,6 +9,9 @@ mfsi:
   distance: mahalanobis       # mahalanobis (plan) | euclidean | lof (plan 4 rows)
   lof_neighbors: 20           # distance: lof only
   one_witness: separate       # separate stratum (plan) | naive (plan 4 row: same stratum as two-witness)
+  typicality:                 # sensitivity variant (docs/PREREG_TYPICALITY.md, approved 2026-10-15)
+    enabled: false            # true only in its sensitivity row: r' = r * T
+    q: 0.05                   # T = min(1, S / q); S = val tail survival of the train-mean distance
   uncertain_policy: ignore    # ignore (uncertain in neither cloud) | ones (ablation: uncertain -> positive)
   ridge_factor: 1.0e-3        # lambda = factor * trace / d, added only when a matrix is not PD (logged)
   cond_max: 1.0e+10           # a shrinkage target worse than this chains to the pooled covariance

@@ -27,7 +27,7 @@ from scipy.optimize import minimize
 from scipy.special import expit
 
 from mfsi_cxr.constants import FINDINGS
-from mfsi_cxr.mfsi import yhat
+from mfsi_cxr.mfsi import typicality, yhat
 from mfsi_cxr.mfsi.clouds import cloud_masks, prototype
 from mfsi_cxr.mfsi.covariance import fit_covariances, make_pd, raw_covariance, shrink
 from mfsi_cxr.mfsi.distance import EuclideanCloud, Gaussian, LOFCloud
@@ -47,7 +47,7 @@ ONE_WITNESS_MODES = ("separate", "naive")
 # the decision-centred probability q of the y_hat rule; MSP = max(q, 1 - q)).
 COLUMNS = ("patient_id", "study_id", "finding", "y", "y_hat", "prob", "prob_cal", "p_img_pos", "p_txt_pos",
            "d_img_pos", "d_img_neg", "d_txt_pos", "d_txt_neg", "r_img", "r_txt", "A_cos", "A_js", "R",
-           "R_mean", "stratum", "flag", "escalate", "n_studies", "n_images", "text_len")
+           "R_mean", "stratum", "flag", "escalate", "n_studies", "n_images", "text_len", "T_img", "T_txt")
 
 
 class SplitError(ValueError):
@@ -117,6 +117,7 @@ class Modality:
     gauss_neg: dict[str, Gaussian]
     info: dict[str, dict]
     proj: Projection
+    typ: Gaussian  # typicality model: train mean, train total covariance (PREREG_TYPICALITY)
 
 
 def build_modality(train: dict[str, np.ndarray], key: str, alphas, cfg: dict[str, Any],
@@ -148,7 +149,7 @@ def build_modality(train: dict[str, np.ndarray], key: str, alphas, cfg: dict[str
             gp[f], gn[f] = EuclideanCloud(prototype(zp)), EuclideanCloud(prototype(zn))
         else:
             gp[f], gn[f] = LOFCloud(zp, m["lof_neighbors"]), LOFCloud(zn, m["lof_neighbors"])
-    return Modality(gp, gn, info, proj)
+    return Modality(gp, gn, info, proj, typicality.fit_model(z, m["ridge_factor"], name))
 
 
 def distances(mod: Modality, z: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -270,6 +271,9 @@ def fit_mfsi(train: dict[str, np.ndarray], val: dict[str, np.ndarray], cfg: dict
         params[f"tau_{name}"] = fit_tau(d_pos, d_neg, val["y"], cfg)
         params[f"cov_{name}"] = mods[name].info
         params[f"reduce_{name}"] = mods[name].proj.info()
+        # typicality reference (always stored; used only if mfsi.typicality.enabled): t of all val samples
+        t_val = mods[name].typ.distance(mods[name].proj(val[key]))
+        params[f"typicality_{name}"] = {"reference": np.sort(t_val).tolist()}
         params[f"alpha_{name}"] = {f: mods[name].info[f]["alpha"] for f in FINDINGS}
         if params[f"tau_{name}"]["at_grid_boundary"]:
             log.warning("tau_%s hit the grid boundary (%.3g): STOP-AND-ASK", name,
@@ -321,6 +325,11 @@ def score_arrays(mods: dict[str, Modality], data: dict[str, np.ndarray], params:
         out[f"d_{name}_pos"], out[f"d_{name}_neg"] = d_pos, d_neg
         out[f"p_{name}_pos"] = profile_pos(d_pos, d_neg, tau, b)
         out[f"r_{name}"] = margin(d_pos, d_neg, tau, b)
+        t = mods[name].typ.distance(mods[name].proj(data[key]))
+        out[f"T_{name}"] = np.repeat(typicality.factor(t, params[f"typicality_{name}"]["reference"],
+                                                       m["typicality"]["q"])[:, None], len(FINDINGS), 1)
+        if m["typicality"]["enabled"]:  # sensitivity variant: r' = r * T
+            out[f"r_{name}"] = out[f"r_{name}"] * out[f"T_{name}"]
     out["A_cos"] = agreement(out["p_img_pos"], out["p_txt_pos"], "cos")
     out["A_js"] = agreement(out["p_img_pos"], out["p_txt_pos"], "js")
     a = agreement(out["p_img_pos"], out["p_txt_pos"], m["agreement"])
@@ -358,7 +367,7 @@ def score_split(train: dict[str, np.ndarray], data: dict[str, np.ndarray], param
     }
     for k in ("y_hat", "prob_cal", "p_img_pos", "p_txt_pos", "d_img_pos", "d_img_neg", "d_txt_pos",
               "d_txt_neg",
-              "r_img", "r_txt", "A_cos", "A_js", "R", "R_mean", "flag", "escalate"):
+              "r_img", "r_txt", "A_cos", "A_js", "R", "R_mean", "flag", "escalate", "T_img", "T_txt"):
         rows[k] = s[k].ravel()
     for k in ("n_studies", "n_images", "text_len"):
         rows[k] = np.repeat(data[k], n_findings)

@@ -104,7 +104,12 @@ class DegradedDataset(Dataset):
         return self.fn(self.base[i], np.random.default_rng([self.seed, i]))
 
 
-METRICS = ("r_img", "r_txt", "A_cos", "R")
+METRICS = ("r_img", "r_txt", "A_cos", "R", "r_img_typ", "r_txt_typ")
+
+
+def with_typicality(table):
+    """Typicality re-check (PREREG_TYPICALITY): r' = r * T with the frozen clean-val reference."""
+    return table.assign(r_img_typ=table["r_img"] * table["T_img"], r_txt_typ=table["r_txt"] * table["T_txt"])
 
 
 def summarise(clean, degraded, patient_id: np.ndarray, cfg: dict[str, Any]) -> list[dict[str, Any]]:
@@ -132,7 +137,8 @@ def expectation(modality: str, summary: list[dict[str, Any]]) -> dict[str, Any]:
     by = {r["metric"]: r for r in summary}
     own, other = ("r_img", "r_txt") if modality == "image" else ("r_txt", "r_img")
     return {"own_margin_falls": bool(by[own]["change_hi"] < 0),
-            "other_margin_unchanged": bool(by[other]["change_lo"] <= 0 <= by[other]["change_hi"])}
+            "other_margin_unchanged": bool(by[other]["change_lo"] <= 0 <= by[other]["change_hi"]),
+            "own_typ_margin_falls": bool(by[f"{own}_typ"]["change_hi"] < 0)}
 
 
 def run(cfg: dict[str, Any], split: str) -> tuple[Any, Any]:
@@ -179,7 +185,7 @@ def run(cfg: dict[str, Any], split: str) -> tuple[Any, Any]:
                 if gap > dcfg["clean_tolerance"]:
                     raise RuntimeError(f"clean re-extraction differs from the Phase 2 export "
                                        f"(max |dz| {gap:.2e})")
-            tables[v["name"]] = score_split(train, emb, params, cfg)
+            tables[v["name"]] = with_typicality(score_split(train, emb, params, cfg))
         for v in variants[1:]:
             rows = summarise(tables["clean"], tables[v["name"]], export["patient_id"], cfg)
             exp = expectation(v["modality"], rows)

@@ -80,10 +80,15 @@ def test_summary_and_expectation() -> None:
     clean = pd.DataFrame({m: RNG.uniform(0.4, 0.6, n * n_find) for m in dg.METRICS})
     deg = clean.copy()
     deg["r_img"] -= 0.2
+    deg["r_img_typ"] -= 0.3
     deg["R"] -= 0.1
     cfg = {"eval": {"bootstrap_B": 50, "bootstrap_seed": 0, "alpha": 0.05}}
     rows = dg.summarise(clean, deg, np.arange(n).astype(str), cfg)
     by = {r["metric"]: r for r in rows}
     assert by["r_img"]["change"] < -0.19 and by["r_txt"]["change"] == 0
-    assert dg.expectation("image", rows) == {"own_margin_falls": True, "other_margin_unchanged": True}
-    assert dg.expectation("text", rows) == {"own_margin_falls": False, "other_margin_unchanged": False}
+    assert dg.expectation("image", rows) == {"own_margin_falls": True, "other_margin_unchanged": True,
+                                             "own_typ_margin_falls": True}
+    assert dg.expectation("text", rows) == {"own_margin_falls": False, "other_margin_unchanged": False,
+                                            "own_typ_margin_falls": False}
+    t = dg.with_typicality(pd.DataFrame({"r_img": [0.8], "r_txt": [0.5], "T_img": [0.5], "T_txt": [1.0]}))
+    assert t["r_img_typ"].iloc[0] == 0.4 and t["r_txt_typ"].iloc[0] == 0.5
