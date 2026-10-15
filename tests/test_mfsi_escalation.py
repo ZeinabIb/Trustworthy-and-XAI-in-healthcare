@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from mfsi_cxr.constants import FINDINGS, NO_FINDING
-from mfsi_cxr.mfsi.escalation import escalate, stratum_thresholds, yhat_threshold
+from mfsi_cxr.mfsi.escalation import escalate, finding_thresholds, stratum_thresholds, yhat_threshold
 from mfsi_cxr.mfsi.hierarchy import coherence_flags
 
 CHILD, PARENT_ = FINDINGS.index("Cardiomegaly"), FINDINGS.index("Enlarged Cardiomediastinum")
@@ -65,6 +65,17 @@ def test_stratum_thresholds_escalate_the_stated_share() -> None:
     for s, cols in (("one_witness", [0]), ("two_witness", [1, 2])):
         for f in (0.1, 0.25):
             assert (r[:, cols] < thr[s][str(f)]).mean() == pytest.approx(f, abs=0.01)
+
+
+def test_finding_thresholds_escalate_the_stated_share_per_finding() -> None:
+    rng = np.random.default_rng(1)
+    r = np.c_[rng.uniform(size=1000), rng.uniform(size=1000) * 0.1, 0.9 + rng.uniform(size=1000) * 0.1]
+    thr = finding_thresholds(r, ["a", "b", "c"], [0.1, 0.25])
+    for j, f in enumerate("abc"):
+        for q in (0.1, 0.25):
+            assert (r[:, j] < thr[f][str(q)]).mean() == pytest.approx(q, abs=0.01)
+    pooled = stratum_thresholds(r, np.array(["one_witness"] * 3), [0.25])["one_witness"]["0.25"]
+    assert (r[:, 2] < pooled).mean() == 0.0 and (r[:, 1] < pooled).mean() > 0.5  # pooled: escalates by scale
 
 
 def test_youden_threshold_separates() -> None:

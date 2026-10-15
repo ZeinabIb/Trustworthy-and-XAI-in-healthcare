@@ -63,9 +63,10 @@ def test_fit_and_score(cfg: dict[str, Any]) -> None:
     one = table[table["stratum"] == "one_witness"]
     assert np.allclose(one["R"], one["r_img"])  # R_one = r_img, its own scale
     op = cfg["mfsi"]["operating_fraction"]
-    for s, rows in table.groupby("stratum"):
-        theta = params["theta_R"][s][str(op)]
-        assert (rows["R"] < theta).mean() == pytest.approx(op, abs=0.02)
+    assert params["theta_scope"] == "finding"
+    for f, rows in table.groupby("finding"):
+        theta = params["theta_R_finding"][f][str(op)]
+        assert (rows["R"] < theta).mean() == pytest.approx(op, abs=0.02), f
     assert (table["escalate"] >= (table["R"] < 0)).all()
 
 
@@ -181,3 +182,21 @@ def test_ece_objective_without_offset_is_the_plan(cfg: dict[str, Any]) -> None:
     cfg["mfsi"].update(tau_objective="ece", offset=False, tau_scope="global")
     params = fit_mfsi(_export(300, "train", 0), _export(150, "val", 1), cfg, INFORMATIVE, seed=0)
     assert params["tau_img"]["b"] == 0.0 and params["tau_img"]["objective"] == "ece"
+
+
+def test_theta_stratum_scope_is_the_plan(cfg: dict[str, Any]) -> None:
+    cfg["mfsi"]["theta_scope"] = "stratum"
+    train, val = _export(400, "train", 0), _export(200, "val", 1)
+    params = fit_mfsi(train, val, cfg, INFORMATIVE, seed=0)
+    table = score_split(train, val, params, cfg)
+    op = cfg["mfsi"]["operating_fraction"]
+    for s, rows in table.groupby("stratum"):
+        theta = params["theta_R"][s][str(op)]
+        assert (rows["R"] < theta).mean() == pytest.approx(op, abs=0.02)
+        assert np.array_equal(rows["escalate"], (rows["R"] < theta) | rows["flag"])
+
+
+def test_theta_scope_is_validated(cfg: dict[str, Any]) -> None:
+    cfg["mfsi"]["theta_scope"] = "global"
+    with pytest.raises(ValueError, match="theta_scope"):
+        fit_mfsi(_export(200, "train", 0), _export(100, "val", 1), cfg, INFORMATIVE, seed=0)

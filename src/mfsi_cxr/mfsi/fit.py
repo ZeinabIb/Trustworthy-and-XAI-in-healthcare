@@ -1,9 +1,9 @@
 """MFSI fit (train), tuning (val) and scoring (any split) from the frozen Phase 2 exports.
 
 - Clouds, prototypes, covariances: TRAIN only. alpha: K-fold CV over train positives (mean held-out Gaussian
-  log-likelihood). tau, y_hat thresholds, theta_R per stratum: VAL only. tau is per finding and modality
-  (mfsi.tau_scope: finding; Zeinab 2026-10-15), falling back to the modality's global tau when a finding has
-  fewer than tau_min_class_count val positives or negatives; tau_scope: global is the plan's starting point.
+  log-likelihood). tau, y_hat thresholds, theta_R (per finding; theta_scope): VAL only. tau is per finding
+  and modality (mfsi.tau_scope: finding; Zeinab 2026-10-15), falling back to the modality's global tau when a
+  finding has fewer than tau_min_class_count val positives or negatives; global: the plan's start.
   With mfsi.offset each also gets an offset b, p+ = sigmoid((d_- - d_+ - b)/tau), fitted by log-loss (Platt;
   Zeinab 2026-10-15): under ECE a constant p+ = prevalence would win.
 - Scoring a split needs only the fitted parameters and the train exports; its labels are copied into the
@@ -30,7 +30,7 @@ from mfsi_cxr.constants import FINDINGS
 from mfsi_cxr.mfsi.clouds import cloud_masks, prototype
 from mfsi_cxr.mfsi.covariance import fit_covariances, make_pd, raw_covariance, shrink
 from mfsi_cxr.mfsi.distance import Gaussian
-from mfsi_cxr.mfsi.escalation import escalate, stratum_thresholds, yhat_threshold
+from mfsi_cxr.mfsi.escalation import escalate, finding_thresholds, stratum_thresholds, yhat_threshold
 from mfsi_cxr.mfsi.hierarchy import coherence_flags
 from mfsi_cxr.mfsi.profile import margin, profile_pos
 from mfsi_cxr.mfsi.reduce import Projection, fit_projection
@@ -39,6 +39,7 @@ from mfsi_cxr.utils.logging import get_logger
 
 log = get_logger("mfsi")
 MODALITIES = (("img", "z_img"), ("txt", "z_txt"))
+THETA_SCOPES = ("finding", "stratum")
 # Output columns of mfsi_{split}_seed{k}.parquet, in the order of plan 3 "Outputs".
 COLUMNS = ("patient_id", "study_id", "finding", "y", "y_hat", "prob", "p_img_pos", "p_txt_pos", "d_img_pos",
            "d_img_neg", "d_txt_pos", "d_txt_neg", "r_img", "r_txt", "A_cos", "A_js", "R", "R_mean", "stratum",
@@ -228,10 +229,12 @@ def tau_vector(tau_params: dict[str, Any], key: str = "tau") -> np.ndarray:
 
 def fit_mfsi(train: dict[str, np.ndarray], val: dict[str, np.ndarray], cfg: dict[str, Any],
              text_informative: dict[str, bool], seed: int) -> dict[str, Any]:
-    """All MFSI parameters: alpha (train CV), tau, y_hat thresholds, theta_R per stratum (val)."""
+    """All MFSI parameters: alpha (train CV), tau, y_hat thresholds, theta_R per finding and stratum (val)."""
     _require(train, "train")
     _require(val, "val")
     m = cfg["mfsi"]
+    if m["theta_scope"] not in THETA_SCOPES:
+        raise ValueError(f"mfsi.theta_scope must be one of {THETA_SCOPES}, got {m['theta_scope']!r}")
     params: dict[str, Any] = {"seed": seed, "n_train": int(len(train["study_id"])),
                               "n_val": int(len(val["study_id"])), "config": m,
                               "text_informative": text_informative}
@@ -257,7 +260,17 @@ def fit_mfsi(train: dict[str, np.ndarray], val: dict[str, np.ndarray], cfg: dict
     strata = np.array([stratum_of(f, text_informative) for f in FINDINGS])
     params["strata"] = dict(zip(FINDINGS, strata.tolist(), strict=True))
     params["theta_R"] = stratum_thresholds(scored["R"], strata, m["escalate_fractions"])
+    params["theta_R_finding"] = finding_thresholds(scored["R"], FINDINGS, m["escalate_fractions"])
+    params["theta_scope"] = m["theta_scope"]
     return params
+
+
+def theta_vector(params: dict[str, Any], fraction: float) -> np.ndarray:
+    """The (L,) theta_R in use: each finding's own (theta_scope 'finding') or its stratum's."""
+    op = str(fraction)
+    if params["theta_scope"] == "finding":
+        return np.array([params["theta_R_finding"][f][op] for f in FINDINGS])
+    return np.array([params["theta_R"][params["strata"][f]][op] for f in FINDINGS])
 
 
 def stratum_of(finding: str, text_informative: dict[str, bool]) -> str:
@@ -286,8 +299,7 @@ def score_arrays(mods: dict[str, Modality], data: dict[str, np.ndarray], params:
     if thresholds is not None:
         thr = np.array([thresholds["yhat_threshold"][f] for f in FINDINGS])
         out["y_hat"] = data["probs"] >= thr[None, :]
-        op = str(m["operating_fraction"])
-        theta_r = np.array([thresholds["theta_R"][thresholds["strata"][f]][op] for f in FINDINGS])
+        theta_r = theta_vector(thresholds, m["operating_fraction"])
         out["flag"] = coherence_flags(out["y_hat"], out["R"], theta_r)
         out["escalate"] = escalate(out["R"], theta_r, out["flag"])
     return out

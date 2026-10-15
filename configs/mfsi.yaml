@@ -20,7 +20,8 @@ mfsi:
   agreement: cos              # cos (primary) | js (1 - JS, base 2) | none (ablation: A = 1)
   combine: min                # min (primary) | mean (ablation)
   yhat_rule: youden           # per-finding classifier threshold on val: youden | f1
-  escalate_fractions: [0.10, 0.25, 0.50]    # theta_R per stratum escalates these shares of val cases
+  escalate_fractions: [0.10, 0.25, 0.50]    # theta_R escalates these shares of val cases
+  theta_scope: finding        # finding (Zeinab 2026-10-15: own theta_R per finding) | stratum (plan as written)
   operating_fraction: 0.25    # default operating point
   inert_sd: 0.02              # agreement spread below this sd is "inert" (first experiment)
   shared_space_corr: 0.95     # corr(p_img, p_txt) above this suggests a shared-space artefact
