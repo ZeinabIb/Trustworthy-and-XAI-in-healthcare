@@ -60,9 +60,10 @@ def collect(cfg: dict[str, Any], split: str, seeds: list[int]) -> SplitData:
                      params_all[0]["strata"])
 
 
-def run(cfg: dict[str, Any], d: SplitData, blank_policy: str | None = None) -> dict[str, pd.DataFrame]:
+def run(cfg: dict[str, Any], d: SplitData, blank_policy: str | None = None,
+        finding_mask: np.ndarray | None = None) -> dict[str, pd.DataFrame]:
     policy = blank_policy or cfg["eval"]["blank_policy"]
-    out = evaluate(Inputs(d.scores, d.y, d.y_hat, d.patient_id, policy), cfg)
+    out = evaluate(Inputs(d.scores, d.y, d.y_hat, d.patient_id, policy, finding_mask), cfg)
     out["per_finding"].insert(2, "stratum", out["per_finding"]["finding"].map(d.strata))
     if not out["cross_modal"].empty:
         out["cross_modal"].insert(1, "stratum", out["cross_modal"]["finding"].map(d.strata))
@@ -72,15 +73,38 @@ def run(cfg: dict[str, Any], d: SplitData, blank_policy: str | None = None) -> d
     return out
 
 
-def blank_sensitivity(cfg: dict[str, Any], main_default: pd.DataFrame,
-                      main_other: pd.DataFrame) -> pd.DataFrame:
-    """Macro AURC per score under both blank policies and the shift (plan 4 sensitivity check)."""
-    a = main_default.set_index("score")["aurc"]
-    b = main_other.set_index("score")["aurc"]
-    out = pd.DataFrame({"aurc_" + main_default["blank_policy"].iloc[0]: a,
-                        "aurc_" + main_other["blank_policy"].iloc[0]: b, "shift": b - a})
-    out["exceeds_warn"] = out["shift"].abs() > cfg["eval"]["blank_shift_warn"]
-    return out.reset_index()
+def exclude_eligibility(cfg: dict[str, Any], y: np.ndarray) -> pd.DataFrame:
+    """Per finding: explicit positives / negatives / blanks / uncertain in the split, and whether the
+    'exclude blanks' sensitivity is computed (>= exclude_min_pos positives, >= exclude_min_neg negatives)."""
+    e = cfg["eval"]
+    n_pos, n_neg = (y == 1).sum(0), (y == 0).sum(0)
+    return pd.DataFrame({"finding": list(FINDINGS), "n_explicit_pos": n_pos, "n_explicit_neg": n_neg,
+                         "n_blank": np.isnan(y).sum(0), "n_uncertain": (y == -1).sum(0),
+                         "eligible": (n_pos >= e["exclude_min_pos"]) & (n_neg >= e["exclude_min_neg"])})
+
+
+def blank_sensitivity(cfg: dict[str, Any], d: SplitData,
+                      main_all: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """'Exclude blanks' vs the headline policy on the SAME eligible findings (macro over eligible only), next
+    to the headline macro over all findings. Returns (per-score table, per-finding eligibility table)."""
+    elig = exclude_eligibility(cfg, d.y)
+    mask = elig["eligible"].to_numpy()
+    eligible = ";".join(elig.loc[mask, "finding"]) or "none"
+    head = cfg["eval"]["blank_policy"]
+    other = "exclude" if head == "negative" else "negative"
+    if not mask.any():
+        out = main_all[["score"]].assign(**{f"aurc_{head}_all": main_all["aurc"]}, eligible_findings=eligible)
+        return out, elig
+    a = run(cfg, d, head, mask)["main"].set_index("score")
+    b = run(cfg, d, other, mask)["main"].set_index("score")
+    out = pd.DataFrame({
+        f"aurc_{head}_all": main_all.set_index("score")["aurc"],
+        f"aurc_{head}_eligible": a["aurc"], f"aurc_{other}_eligible": b["aurc"],
+        f"aurc_{other}_eligible_lo": b["aurc_lo"], f"aurc_{other}_eligible_hi": b["aurc_hi"],
+        "shift_eligible": b["aurc"] - a["aurc"], "n_eligible_findings": int(mask.sum()),
+        "eligible_findings": eligible})
+    out["exceeds_warn"] = out["shift_eligible"].abs() > cfg["eval"]["blank_shift_warn"]
+    return out.reset_index(), elig
 
 
 def profile_calibration(cfg: dict[str, Any], d: SplitData) -> pd.DataFrame:

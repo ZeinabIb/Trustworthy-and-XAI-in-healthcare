@@ -10,3 +10,5 @@ eval:
   lof_neighbors: 20               # LocalOutlierFactor baseline (scikit-learn default)
   reference: mfsi                 # score every baseline is compared with (paired AURC difference, DeLong)
   blank_shift_warn: 0.01          # |macro AURC change| with blanks excluded above this -> STOP-AND-ASK
+  exclude_min_pos: 10             # 'exclude blanks' sensitivity only for findings with >= this many explicit
+  exclude_min_neg: 10             #   positives and negatives in the split (Zeinab 2026-10-15; also for full)

@@ -96,3 +96,45 @@ def test_seed_mean_and_range(setup, cfg: dict[str, Any]) -> None:
     pf, a, b = (x["per_finding"].set_index(["score", "finding"]) for x in (out, one, two))
     assert np.allclose(pf["aurc"], (a["aurc"] + b["aurc"]) / 2, equal_nan=True)
     assert np.allclose(pf["aurc_seed_min"], np.minimum(a["aurc"], b["aurc"]), equal_nan=True)
+
+
+def test_sanity_anchors_random_and_oracle(setup, cfg: dict[str, Any]) -> None:
+    from mfsi_cxr.eval.rq1 import oracle_aurc
+    from mfsi_cxr.eval.selective import aurc
+
+    _, val, _, _, scores, y_hat = setup
+    correct, used = correctness(val["y"], y_hat, "negative")
+    pf = evaluate(Inputs([scores], val["y"], [y_hat], val["patient_id"], "negative"), cfg)["per_finding"]
+    for j, f in enumerate(FINDINGS):
+        c = correct[used[:, j], j]
+        rows = pf[pf.finding == f]
+        assert np.allclose(rows["aurc_random"], 1 - c.mean())
+        assert np.allclose(rows["aurc_oracle"], aurc(c.astype(float), c))  # trust = correctness itself
+        assert (rows["aurc_oracle"] <= rows["aurc"] + 1e-12).all()
+        assert np.array_equal(rows["below_random"], rows["aurc"] > rows["aurc_random"])
+    assert oracle_aurc(4, 2) == pytest.approx((0 + 0 + 1 / 3 + 2 / 4) / 4)
+
+
+def test_finding_mask_makes_other_findings_na(setup, cfg: dict[str, Any]) -> None:
+    _, val, _, _, scores, y_hat = setup
+    mask = np.zeros(len(FINDINGS), bool)
+    mask[[FINDINGS.index("Edema"), FINDINGS.index("Fracture")]] = True
+    out = evaluate(Inputs([scores], val["y"], [y_hat], val["patient_id"], "exclude", mask), cfg)
+    pf = out["per_finding"]
+    assert pf.loc[~pf.finding.isin(["Edema", "Fracture"]), "aurc"].isna().all()
+    m = out["main"].set_index("score")
+    assert (m["n_findings"] == 2).all()
+    e = pf[pf.finding.isin(["Edema", "Fracture"])].groupby("score")["aurc"].mean()
+    assert np.allclose(m.loc[e.index, "aurc"], e)
+
+
+def test_exclude_eligibility_counts(cfg: dict[str, Any]) -> None:
+    from mfsi_cxr.eval.pipeline import exclude_eligibility
+
+    y = np.full((40, len(FINDINGS)), np.nan)
+    y[:10, 0], y[10:20, 0] = 1.0, 0.0       # 10 / 10 -> eligible
+    y[:10, 1], y[10:19, 1] = 1.0, 0.0       # 10 / 9  -> not
+    y[:5, 2] = -1.0
+    t = exclude_eligibility(cfg, y).set_index("finding")
+    assert t.loc[FINDINGS[0], "eligible"] and not t.loc[FINDINGS[1], "eligible"]
+    assert t.loc[FINDINGS[2], "n_uncertain"] == 5 and t.loc[FINDINGS[2], "n_blank"] == 35

@@ -45,7 +45,17 @@ def _nan(fn, a: np.ndarray, **kw) -> np.ndarray | float:
 
 
 def metric_names(coverages: list[float]) -> list[str]:
-    return ["aurc", *[f"acc@{c}" for c in coverages], "auroc"]
+    """Per-score metrics, then the score-independent sanity anchors (Zeinab 2026-10-15): random AURC (the
+    expected AURC of a random order = the error rate) and oracle AURC (all correct cases first)."""
+    return ["aurc", *[f"acc@{c}" for c in coverages], "auroc", "aurc_random", "aurc_oracle"]
+
+
+def oracle_aurc(n: int, n_err: float) -> float:
+    """AURC of a perfect trust order: risk@k = max(0, k - (n - n_err)) / k."""
+    if n == 0:
+        return float("nan")
+    k = np.arange(1, n + 1)
+    return float((np.maximum(0.0, k - (n - n_err)) / k).mean())
 
 
 def _fast_auroc(score: np.ndarray, positive: np.ndarray) -> float:
@@ -60,13 +70,15 @@ def _fast_auroc(score: np.ndarray, positive: np.ndarray) -> float:
 def _metrics(trust: np.ndarray, correct: np.ndarray, coverages: list[float]) -> np.ndarray:
     n = len(trust)
     if n == 0:
-        return np.full(len(coverages) + 2, np.nan)
+        return np.full(len(coverages) + 4, np.nan)
     cum = cumulative_errors(trust, correct)
     out = [float((cum[1:] / np.arange(1, n + 1)).mean())]
     for c in coverages:
         k = int(np.ceil(c * n))
         out.append(1.0 - cum[k] / k if k else np.nan)
     out.append(_fast_auroc(trust, correct.astype(bool)))
+    n_err = float(n - correct.sum())
+    out += [n_err / n, oracle_aurc(n, n_err)]
     return np.array(out)
 
 
@@ -74,20 +86,23 @@ class Inputs:
     """Aligned per-seed arrays: trust[name] (S, N, L), correct and used (S, N, L), patient_id (N,)."""
 
     def __init__(self, scores_by_seed: list[dict[str, np.ndarray]], y: np.ndarray,
-                 y_hat_by_seed: list[np.ndarray], patient_id: np.ndarray, blank_policy: str) -> None:
+                 y_hat_by_seed: list[np.ndarray], patient_id: np.ndarray, blank_policy: str,
+                 finding_mask: np.ndarray | None = None) -> None:
         names = [k for k in scores_by_seed[0] if all(k in s for s in scores_by_seed)]
         self.names = names
         self.trust = {k: np.stack([s[k] for s in scores_by_seed]) for k in names}
         cu = [correctness(y, yh, blank_policy) for yh in y_hat_by_seed]
         self.correct = np.stack([c for c, _ in cu])
         self.used = np.stack([u for _, u in cu])
+        if finding_mask is not None:  # findings outside the mask are not scored at all (metrics n/a)
+            self.used &= np.asarray(finding_mask, dtype=bool)[None, None, :]
         self.patient_id = np.asarray(patient_id)
         self.n_seeds = len(scores_by_seed)
 
 
 def _block(inp: Inputs, rows: np.ndarray, coverages: list[float]) -> np.ndarray:
     """(n_scores, L, M) seed-mean metrics on `rows` (patient-resampled row indices, repeats allowed)."""
-    out = np.full((len(inp.names), len(FINDINGS), len(coverages) + 2), np.nan)
+    out = np.full((len(inp.names), len(FINDINGS), len(coverages) + 4), np.nan)
     for j in range(len(FINDINGS)):
         per_seed = []
         for s in range(inp.n_seeds):
@@ -126,6 +141,7 @@ def evaluate(inp: Inputs, cfg: dict[str, Any]) -> dict[str, pd.DataFrame]:
             row["aurc_minus_ref"] = point[i, j, 0] - point[ri, j, 0]
             diff = boot[:, i, j, 0] - boot[:, ri, j, 0]
             row["aurc_minus_ref_lo"], row["aurc_minus_ref_hi"] = percentile_ci(diff, alpha)
+            _vs_random(row, point[i, j], boot[:, i, j], mnames, alpha)
             per_finding.append(row)
 
     macro_point = _nan(np.nanmean, point, axis=1)        # (n_scores, M)
@@ -141,10 +157,23 @@ def evaluate(inp: Inputs, cfg: dict[str, Any]) -> dict[str, pd.DataFrame]:
         row["aurc_minus_ref"] = macro_point[i, 0] - macro_point[ri, 0]
         diff = macro_boot[:, i, 0] - macro_boot[:, ri, 0]
         row["aurc_minus_ref_lo"], row["aurc_minus_ref_hi"] = percentile_ci(diff, alpha)
+        _vs_random(row, macro_point[i], macro_boot[:, i], mnames, alpha)
+        row["findings_below_random"] = ";".join(
+            f for j, f in enumerate(FINDINGS) if point[i, j, 0] > point[i, j, mnames.index("aurc_random")])
         main.append(row)
 
     return {"main": pd.DataFrame(main), "per_finding": pd.DataFrame(per_finding),
             "delong": _delong(inp, ref, alpha), "cross_modal": _cross_modal(inp, point, boot, alpha)}
+
+
+def _vs_random(row: dict[str, Any], point: np.ndarray, boot: np.ndarray, mnames: list[str],
+               alpha: float) -> None:
+    """AURC minus random AURC (> 0 = worse than a random order), with its paired bootstrap CI."""
+    k = mnames.index("aurc_random")
+    row["aurc_minus_random"] = point[0] - point[k]
+    row["aurc_minus_random_lo"], row["aurc_minus_random_hi"] = percentile_ci(boot[:, 0] - boot[:, k], alpha)
+    row["below_random"] = bool(row["aurc_minus_random"] > 0)
+    row["below_random_ci"] = bool(row["aurc_minus_random_lo"] > 0)
 
 
 def _one_seed(inp: Inputs, s: int) -> Inputs:

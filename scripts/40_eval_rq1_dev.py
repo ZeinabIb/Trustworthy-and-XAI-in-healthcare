@@ -2,9 +2,9 @@
 patient-bootstrap CIs; blank-label sensitivity; calibration of the profiles. Never reads test.
 
 Writes outputs/<profile>/tables/rq1_dev_{main,per_finding,delong,cross_modal,blank_sensitivity,
-profile_calibration}.csv and figures/{risk_coverage,reliability_diagrams}_dev.png. Prints the plan's
-STOP-AND-ASK conditions: a baseline beating MFSI (macro AURC CI entirely below MFSI's) and a large
-blank-policy shift.
+blank_eligibility,profile_calibration}.csv and figures/{risk_coverage,reliability_diagrams}_dev.png.
+Prints the plan's STOP-AND-ASK conditions: a baseline beating MFSI (macro AURC CI entirely below
+MFSI's) and a large blank-policy shift.
 """
 
 from __future__ import annotations
@@ -36,12 +36,11 @@ def main(argv: list[str] | None = None) -> int:
     e = cfg["eval"]
     d = pipeline.collect(cfg, SPLIT, list(cfg["train"]["seeds"]))
     res = pipeline.run(cfg, d)
-    other = "exclude" if e["blank_policy"] == "negative" else "negative"
-    res_other = pipeline.run(cfg, d, other)
     for key, table in res.items():
         write(table, f"rq1_dev_{key}", cfg)
-    sens = pipeline.blank_sensitivity(cfg, res["main"], res_other["main"])
+    sens, elig = pipeline.blank_sensitivity(cfg, d, res["main"])
     write(sens, "rq1_dev_blank_sensitivity", cfg)
+    write(elig, "rq1_dev_blank_eligibility", cfg)
     calib = pipeline.profile_calibration(cfg, d)
     write(calib, "rq1_dev_profile_calibration", cfg)
 
@@ -67,9 +66,11 @@ def main(argv: list[str] | None = None) -> int:
     better = res["main"][(res["main"]["score"] != e["reference"]) & (res["main"]["aurc_minus_ref_hi"] < 0)]
     if len(better):
         print(f"STOP-AND-ASK: macro AURC CI below {e['reference']} for {sorted(better['score'])}")
-    big = sens[sens["exceeds_warn"]]
+    print("exclude-blanks sensitivity eligible findings:", sens["eligible_findings"].iloc[0])
+    big = sens[sens["exceeds_warn"]] if "exceeds_warn" in sens else sens.iloc[:0]
     if len(big):
-        print(f"STOP-AND-ASK: blank policy shifts macro AURC by > {e['blank_shift_warn']} for "
+        print(f"STOP-AND-ASK: blank policy shifts macro AURC (eligible findings) by > "
+              f"{e['blank_shift_warn']} for "
               f"{sorted(big['score'])}")
     print("profile ECE (equal mass, mean over findings):",
           calib.groupby("modality")[["ece_before", "ece_after"]].mean().round(4).to_dict("index"))
