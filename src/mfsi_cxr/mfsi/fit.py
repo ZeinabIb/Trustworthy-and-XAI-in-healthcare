@@ -30,7 +30,7 @@ from mfsi_cxr.constants import FINDINGS
 from mfsi_cxr.mfsi import yhat
 from mfsi_cxr.mfsi.clouds import cloud_masks, prototype
 from mfsi_cxr.mfsi.covariance import fit_covariances, make_pd, raw_covariance, shrink
-from mfsi_cxr.mfsi.distance import Gaussian
+from mfsi_cxr.mfsi.distance import EuclideanCloud, Gaussian, LOFCloud
 from mfsi_cxr.mfsi.escalation import escalate, finding_thresholds, stratum_thresholds
 from mfsi_cxr.mfsi.hierarchy import coherence_flags
 from mfsi_cxr.mfsi.profile import margin, profile_pos
@@ -41,6 +41,8 @@ from mfsi_cxr.utils.logging import get_logger
 log = get_logger("mfsi")
 MODALITIES = (("img", "z_img"), ("txt", "z_txt"))
 THETA_SCOPES = ("finding", "stratum")
+DISTANCES = ("mahalanobis", "euclidean", "lof")
+ONE_WITNESS_MODES = ("separate", "naive")
 # Output columns of mfsi_{split}_seed{k}.parquet, in the order of plan 3 "Outputs", plus prob_cal (y_hat v2:
 # the decision-centred probability q of the y_hat rule; MSP = max(q, 1 - q)).
 COLUMNS = ("patient_id", "study_id", "finding", "y", "y_hat", "prob", "prob_cal", "p_img_pos", "p_txt_pos",
@@ -124,15 +126,29 @@ def build_modality(train: dict[str, np.ndarray], key: str, alphas, cfg: dict[str
     proj = fit_projection(train[key], m["reduce"], name)
     z = proj(train[key])
     pos, neg = cloud_masks(train["y"], m["uncertain_policy"])
-    covs = fit_covariances(z, pos, neg, alphas, m["ridge_factor"], m["cond_max"], name)
+    if m["distance"] not in DISTANCES:
+        raise ValueError(f"mfsi.distance must be one of {DISTANCES}, got {m['distance']!r}")
+    if m["distance"] == "mahalanobis":
+        covs = fit_covariances(z, pos, neg, alphas, m["ridge_factor"], m["cond_max"], name,
+                               mode=m["covariance"])
+        info = covs.info
+    else:  # Euclidean / LOF sensitivity variants: no covariances, no alpha
+        info = {f: {"n_pos": int(pos[:, j].sum()), "n_neg": int(neg[:, j].sum()), "alpha": float("nan"),
+                    "target": m["distance"], "ridge_pos": 0.0, "ridge_neg": 0.0, "cond_pos": float("nan"),
+                    "cond_neg": float("nan")} for j, f in enumerate(FINDINGS)}
     gp, gn = {}, {}
     for j, f in enumerate(FINDINGS):
         zp = z[pos[:, j]] if pos[:, j].any() else z  # a finding without positives: fall back to all (logged)
         if not pos[:, j].any():
             log.warning("%s:%s: no train positives; positive prototype = global mean", name, f)
-        gp[f] = Gaussian(prototype(zp), covs.pos[f])
-        gn[f] = Gaussian(prototype(z[neg[:, j]]), covs.neg[f])
-    return Modality(gp, gn, covs.info, proj)
+        zn = z[neg[:, j]]
+        if m["distance"] == "mahalanobis":
+            gp[f], gn[f] = Gaussian(prototype(zp), covs.pos[f]), Gaussian(prototype(zn), covs.neg[f])
+        elif m["distance"] == "euclidean":
+            gp[f], gn[f] = EuclideanCloud(prototype(zp)), EuclideanCloud(prototype(zn))
+        else:
+            gp[f], gn[f] = LOFCloud(zp, m["lof_neighbors"]), LOFCloud(zn, m["lof_neighbors"])
+    return Modality(gp, gn, info, proj)
 
 
 def distances(mod: Modality, z: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -190,6 +206,12 @@ def _platt(gap: np.ndarray, target: np.ndarray, m: dict[str, Any]) -> dict[str, 
             **_evaluate(gap, target, tau, b, m["ece_bins"])}
 
 
+def _fixed_tau(gap: np.ndarray, target: np.ndarray, m: dict[str, Any]) -> dict[str, Any]:
+    """Sensitivity variant (plan 4 'tau = 1'): no calibration, tau = 1, b = 0."""
+    return {"tau": 1.0, "b": 0.0, "at_grid_boundary": False,
+            **_evaluate(gap, target, 1.0, 0.0, m["ece_bins"])}
+
+
 def fit_tau(d_pos: np.ndarray, d_neg: np.ndarray, y: np.ndarray, cfg: dict[str, Any]) -> dict[str, Any]:
     """Profile calibration per modality on VAL, p+ = sigmoid((d_- - d_+ - b)/tau) against the class label:
     the global (tau, b) (all findings pooled) and, under tau_scope 'finding', one (tau, b) per finding (global
@@ -198,11 +220,11 @@ def fit_tau(d_pos: np.ndarray, d_neg: np.ndarray, y: np.ndarray, cfg: dict[str, 
     m = cfg["mfsi"]
     if m["tau_scope"] not in ("finding", "global"):
         raise ValueError(f"mfsi.tau_scope must be finding or global, got {m['tau_scope']!r}")
-    if m["tau_objective"] not in ("logloss", "ece"):
-        raise ValueError(f"mfsi.tau_objective must be logloss or ece, got {m['tau_objective']!r}")
+    if m["tau_objective"] not in ("logloss", "ece", "none"):
+        raise ValueError(f"mfsi.tau_objective must be logloss, ece or none, got {m['tau_objective']!r}")
     if m["tau_objective"] == "ece" and m["offset"]:
         raise ValueError("mfsi.offset needs tau_objective logloss: under ECE a constant p+ = prevalence wins")
-    fit = _platt if m["tau_objective"] == "logloss" else _tau_search
+    fit = {"logloss": _platt, "ece": _tau_search, "none": _fixed_tau}[m["tau_objective"]]
     label, used = tau_targets(y, m["uncertain_policy"])
     gap = d_neg - d_pos
     out = fit(gap[used], label[used], m)
@@ -262,7 +284,9 @@ def fit_mfsi(train: dict[str, np.ndarray], val: dict[str, np.ndarray], cfg: dict
                       "per_finding": {f: yhat.fit_rule(m["yhat_rule"], val["probs"][used[:, j], j],
                                                        label[used[:, j], j], m["platt_eps"])
                                       for j, f in enumerate(FINDINGS)}}
-    strata = np.array([stratum_of(f, text_informative) for f in FINDINGS])
+    if m["one_witness"] not in ONE_WITNESS_MODES:
+        raise ValueError(f"mfsi.one_witness must be one of {ONE_WITNESS_MODES}, got {m['one_witness']!r}")
+    strata = np.array([stratum_of(f, text_informative, m["one_witness"]) for f in FINDINGS])
     params["strata"] = dict(zip(FINDINGS, strata.tolist(), strict=True))
     params["theta_R"] = stratum_thresholds(scored["R"], strata, m["escalate_fractions"])
     params["theta_R_finding"] = finding_thresholds(scored["R"], FINDINGS, m["escalate_fractions"])
@@ -278,7 +302,11 @@ def theta_vector(params: dict[str, Any], fraction: float) -> np.ndarray:
     return np.array([params["theta_R"][params["strata"][f]][op] for f in FINDINGS])
 
 
-def stratum_of(finding: str, text_informative: dict[str, bool]) -> str:
+def stratum_of(finding: str, text_informative: dict[str, bool], mode: str = "separate") -> str:
+    """Text-uninformed findings form the one-witness stratum (plan 3 step 11); `naive` (plan 4 sensitivity)
+    puts them in the two-witness stratum with R = r_img, i.e. thresholded on one scale with two-witness R."""
+    if mode == "naive":
+        return TWO_WITNESS
     return TWO_WITNESS if text_informative.get(finding, False) else ONE_WITNESS
 
 
@@ -298,7 +326,7 @@ def score_arrays(mods: dict[str, Modality], data: dict[str, np.ndarray], params:
     a = agreement(out["p_img_pos"], out["p_txt_pos"], m["agreement"])
     two = reliability(a, out["r_img"], out["r_txt"], m["combine"])
     two_mean = reliability(a, out["r_img"], out["r_txt"], "mean")
-    one_witness = np.array([stratum_of(f, params["text_informative"]) == ONE_WITNESS for f in FINDINGS])
+    one_witness = np.array([not params["text_informative"].get(f, False) for f in FINDINGS])  # R = r_img
     out["R"] = np.where(one_witness[None, :], out["r_img"], two)        # R_one = r_img for one-witness
     out["R_mean"] = np.where(one_witness[None, :], out["r_img"], two_mean)
     if thresholds is not None:

@@ -24,3 +24,27 @@ class Gaussian:
         d = len(self.mu)
         logdet = 2.0 * np.log(np.diag(self.chol)).sum()
         return -0.5 * (self.distance(z) ** 2 + logdet + d * np.log(2 * np.pi))
+
+
+class EuclideanCloud:
+    """Sensitivity variant (`mfsi.distance: euclidean`): d(z) = ||z - mu||."""
+
+    def __init__(self, mu: np.ndarray) -> None:
+        self.mu = mu.astype(np.float64)
+
+    def distance(self, z: np.ndarray) -> np.ndarray:
+        return np.linalg.norm(z.astype(np.float64) - self.mu, axis=1)
+
+
+class LOFCloud:
+    """Sensitivity variant (`mfsi.distance: lof`): d(z) = -LOF score_samples against the class cloud
+    (>= ~1, larger = more outlying), LocalOutlierFactor(novelty=True) fit on the TRAIN cloud."""
+
+    def __init__(self, z_cloud: np.ndarray, n_neighbors: int) -> None:
+        from sklearn.neighbors import LocalOutlierFactor
+
+        k = max(1, min(n_neighbors, len(z_cloud) - 1))
+        self.model = LocalOutlierFactor(n_neighbors=k, novelty=True).fit(z_cloud.astype(np.float64))
+
+    def distance(self, z: np.ndarray) -> np.ndarray:
+        return -self.model.score_samples(z.astype(np.float64))

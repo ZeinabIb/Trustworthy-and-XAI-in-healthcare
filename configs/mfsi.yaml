@@ -5,6 +5,10 @@ mfsi:
   reduce:                     # projection before MFSI (Zeinab 2026-10-15): embeddings are rank-deficient
     method: pca               # pca (train-only, per modality) | none (plan as written: full 1024-d)
     variance: 0.99            # k = smallest number of components keeping this share of train variance
+  covariance: parent          # parent (plan) | pooled_target | ledoit_wolf | tied | sample_ridge (plan 4)
+  distance: mahalanobis       # mahalanobis (plan) | euclidean | lof (plan 4 rows)
+  lof_neighbors: 20           # distance: lof only
+  one_witness: separate       # separate stratum (plan) | naive (plan 4 row: same stratum as two-witness)
   uncertain_policy: ignore    # ignore (uncertain in neither cloud) | ones (ablation: uncertain -> positive)
   ridge_factor: 1.0e-3        # lambda = factor * trace / d, added only when a matrix is not PD (logged)
   cond_max: 1.0e+10           # a shrinkage target worse than this chains to the pooled covariance
@@ -14,7 +18,7 @@ mfsi:
   tau_grid: {min: 0.05, max: 20.0, n: 60}   # tau range (both objectives); log grid for ece, n unused by logloss
   tau_scope: finding          # finding (Zeinab 2026-10-15: one tau per finding and modality) | global
   tau_min_class_count: 10     # per-finding tau needs this many val positives and negatives, else global tau
-  tau_objective: logloss      # logloss (Platt; Zeinab 2026-10-15) | ece (plan as written; needs offset: false)
+  tau_objective: logloss      # logloss (Platt; Zeinab 2026-10-15) | ece (plan; needs offset: false) | none
   offset: true                # per-finding offset b: p+ = sigmoid((d_- - d_+ - b)/tau) (Zeinab 2026-10-15)
   ece_bins: 15
   agreement: cos              # cos (primary) | js (1 - JS, base 2) | none (ablation: A = 1)

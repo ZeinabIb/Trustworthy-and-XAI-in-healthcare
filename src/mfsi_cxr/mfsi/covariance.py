@@ -5,6 +5,9 @@ Negative: S_-, plus a ridge lambda I (lambda = ridge_factor * trace/d) only if n
 Positive: S~_+ = alpha S_+ + (1 - alpha) T, with T = S~_parent+ (already shrunk; findings in topological
           order) or the pooled within-class covariance. Only the shape is borrowed; the mean stays the
           finding's own. A badly conditioned target chains to the pooled covariance. cond() is logged.
+Sensitivity variants (plan 4, `mfsi.covariance`; default `parent`): `pooled_target` (target always pooled),
+`ledoit_wolf` (positives: sklearn LedoitWolf on the positive cloud), `tied` (every cloud uses the pooled
+covariance, Lee et al.), `sample_ridge` (positives: raw sample covariance, ridge only if not PD).
 """
 
 from __future__ import annotations
@@ -82,6 +85,25 @@ def topological_order(findings: Sequence[str] = FINDINGS) -> list[str]:
     return order
 
 
+COVARIANCE_MODES = ("parent", "pooled_target", "ledoit_wolf", "tied", "sample_ridge")
+
+
+def _variant(mode: str, zp: np.ndarray, zn: np.ndarray, pooled: np.ndarray, ridge_factor: float,
+             name: str) -> tuple[np.ndarray, np.ndarray, float]:
+    """(positive cov, negative cov, alpha) of the non-shrinkage sensitivity variants."""
+    if mode == "tied":
+        return pooled, pooled, float("nan")
+    neg, _ = make_pd(raw_covariance(zn), ridge_factor, f"{name}:neg")
+    if len(zp) < 2:
+        return pooled, neg, float("nan")
+    if mode == "ledoit_wolf":
+        from sklearn.covariance import LedoitWolf
+
+        pos = LedoitWolf().fit(zp.astype(np.float64)).covariance_
+        return make_pd(pos, ridge_factor, f"{name}:pos:lw")[0], neg, float("nan")
+    return make_pd(raw_covariance(zp), ridge_factor, f"{name}:pos:sample")[0], neg, 1.0
+
+
 @dataclass
 class CovarianceSet:
     """Final per-finding class covariances of one modality, with what was done to them."""
@@ -96,27 +118,35 @@ AlphaChooser = Callable[[str, np.ndarray, np.ndarray], float]
 
 def fit_covariances(z: np.ndarray, pos: np.ndarray, neg: np.ndarray,
                     alphas: dict[str, float] | AlphaChooser, ridge_factor: float, cond_max: float,
-                    modality: str, pooled: np.ndarray | None = None) -> CovarianceSet:
+                    modality: str, pooled: np.ndarray | None = None,
+                    mode: str = "parent") -> CovarianceSet:
     """z (N, d) TRAIN embeddings; pos/neg (N, L) cloud masks. `alphas` is a fixed alpha per finding, or a
     chooser (finding, positive embeddings, shrinkage target) -> alpha, called in topological order so a
     child's target is its parent's final matrix."""
     if pooled is None:
         pooled = pooled_covariance([z[pos[:, j]] for j in range(len(FINDINGS))]
                                    + [z[neg[:, j]] for j in range(len(FINDINGS))])
+    if mode not in COVARIANCE_MODES:
+        raise ValueError(f"mfsi.covariance must be one of {COVARIANCE_MODES}, got {mode!r}")
     pooled, pooled_ridge = make_pd(pooled, ridge_factor, f"{modality}:pooled")
     out = CovarianceSet()
     for f in topological_order():
         j = FINDINGS.index(f)
-        zn = z[neg[:, j]]
+        zn, zp = z[neg[:, j]], z[pos[:, j]]
+        if mode in ("tied", "ledoit_wolf", "sample_ridge"):
+            out.pos[f], out.neg[f], alpha = _variant(mode, zp, zn, pooled, ridge_factor, f"{modality}:{f}")
+            out.info[f] = {"n_pos": int(len(zp)), "n_neg": int(len(zn)), "alpha": alpha, "target": mode,
+                           "ridge_pos": 0.0, "ridge_neg": 0.0, "cond_pos": float(np.linalg.cond(out.pos[f])),
+                           "cond_neg": float(np.linalg.cond(out.neg[f]))}
+            continue
         s_neg, ridge_neg = make_pd(raw_covariance(zn), ridge_factor, f"{modality}:{f}:neg")
         target, target_name = pooled, "pooled"
-        if f in PARENT:
+        if f in PARENT and mode == "parent":
             parent = out.pos[PARENT[f]]
             if np.linalg.cond(parent) <= cond_max:
                 target, target_name = parent, f"parent:{PARENT[f]}"
             else:
                 log.info("%s:%s: parent target badly conditioned; chained to pooled", modality, f)
-        zp = z[pos[:, j]]
         raw_pos = raw_covariance(zp) if len(zp) >= 2 else np.zeros_like(pooled)
         if len(zp) < 2:
             alpha = 0.0
