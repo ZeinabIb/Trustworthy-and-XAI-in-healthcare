@@ -34,10 +34,18 @@ REQUIRED_TABLES = (
     "rq2_holdup", "rq2_sample", "label_prevalence", "backbone_auroc", "masking_check",
 )
 REQUIRED_FIGURES = ("risk_coverage", "reliability_diagrams", "volume_confound", "r_deciles", "flip_rates")
-PRODUCER = {
+PRODUCER = {  # first matching prefix wins; dev outputs (*_dev*, *_dev_*) are matched before
+    "rq1_dev_": "40/42 (dev)", "controls_dev_": "43/45 (dev)", "added_value_dev_": "44/42 (dev)",
+    "rq2_dev_": "60 (dev)", "arbiter_dev_": "52 (dev)", "arbiter_examples": "53_render_examples.py",
     "rq1_": "41_run_rq1_final.py", "controls_": "41_run_rq1_final.py", "added_value_": "41_run_rq1_final.py",
-    "rq2_": "61_run_rq2_final.py", "label_prevalence": "11_build_index.py", "backbone_auroc": "20_train.py",
-    "masking_check": "23_masking_check.py", "probe_": "22_probe.py", "REPORT": "99_make_report.py",
+    "RQ1_summary": "41_run_rq1_final.py", "rq2_": "61_run_rq2_final.py",
+    "label_prevalence": "11_build_index.py",
+    "backbone_auroc": "20_train.py", "masking_check": "23_masking_check.py", "probe_": "22_probe.py",
+    "agreement_spread": "32_agreement_spread.py", "mfsi_fit": "30_fit_mfsi.py", "REPORT": "99_make_report.py",
+    "pipeline_overview": "99_make_report.py", "risk_coverage": "41 (40 for *_dev)",
+    "reliability_diagrams": "41 (40 for *_dev)", "volume_confound": "41 (43 for *_dev)",
+    "r_deciles": "41 (43 for *_dev)", "degrade_test": "41 (45 for *_dev)", "flip_rates": "61 (60 for *_dev)",
+    "cannot_decide_vs_R": "61 (60 for *_dev)", "claims_verified": "61 (60 for *_dev)",
 }
 THREATS = (
     "Labels come from the CheXpert labeler on the reports (a reference standard, not ground truth); blanks "
@@ -124,13 +132,14 @@ def _setup(cfg: dict[str, Any], seeds: list[int]) -> list[str]:
     from mfsi_cxr.arbiter.prompts import load_prompt, prompt_hash
 
     g, a = git_info(), cfg["arbiter"]
-    image, text = cfg["model"].get("image", {}), cfg["model"].get("text", {})
+    image, text = cfg["model"]["image_encoder"], cfg["model"]["text_encoder"]
     pk = ", ".join(f"{k} {v}" for k, v in sorted(package_versions().items()) if v)
     return ["## Setup", "",
             f"- git {g.get('commit')} (dirty: {g.get('dirty')}); config hash {config_hash(cfg)}",
             f"- classifier seeds {seeds}; bootstrap B = {cfg['eval']['bootstrap_B']}",
-            f"- image encoder {image.get('xrv_weights')} (sha256 {image.get('sha256')})",
-            f"- text encoder revision {text.get('revision')}",
+            f"- weights: {cfg['model']['weights']}; image encoder {image['xrv_weights']} (torchxrayvision "
+            f"{image['xrv_version']}, sha256 {image['sha256']})",
+            f"- text encoder {text['repo']} @ {text['revision']}",
             f"- arbiter {a['model']} (weights {a['model_digest']})",
             f"- prompt v1 sha256 {prompt_hash(load_prompt(cfg))}",
             f"- packages: {pk}", ""]
@@ -165,7 +174,7 @@ def build_markdown(cfg: dict[str, Any], t: dict[str, pd.DataFrame], seeds: list[
     lines += [f"| {k} | {v['outcome']} | {v['detail']} |" for k, v in hyp.items()]
     rq1 = summary.build(cfg, t, {"split": "test", "commit": git_info().get("commit"), "seeds": seeds})
     lines += ["", "## RQ1 failure conditions", ""]
-    lines += ["#" + ln if ln.startswith("#") else ln for ln in rq1.splitlines()[1:]]
+    lines += ["#" + ln if ln.startswith("#") else ln for ln in rq1.splitlines()[1:] if "THROW-AWAY" not in ln]
     lines += ["", *_rq2(t, hyp), "## Threats to validity", "", *[f"- {x}" for x in THREATS], "",
               "## AI-use statement", "", AI_USE, ""]
     return "\n".join(lines) + "\n"
@@ -176,7 +185,7 @@ def write_manifest(out_dir: Path, cfg: dict[str, Any]) -> Path:
     for p in sorted(out_dir.rglob("*")):
         if not p.is_file() or p.name.endswith(".meta.json") or p.name == "manifest.json":
             continue
-        producer = next((s for k, s in PRODUCER.items() if p.name.startswith(k)), "dev script (see sidecar)")
+        producer = next((s for k, s in PRODUCER.items() if p.name.startswith(k)), "see sidecar")
         digest = hashlib.sha256(p.read_bytes()).hexdigest()
         files.append({"path": p.relative_to(out_dir).as_posix(), "sha256": digest, "producer": producer})
     body = {"profile": cfg["profile"], "config_hash": config_hash(cfg), "git": git_info(),
