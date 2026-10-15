@@ -1,0 +1,3 @@
+Your previous answer was not valid. Problem: {error}
+Answer again with JSON only, in exactly this form, citing only ids from the evidence list:
+{"decision": "present" | "absent" | "cannot_decide", "claims": [{"id": "C1", "text": "...", "cites": ["E2"]}]}

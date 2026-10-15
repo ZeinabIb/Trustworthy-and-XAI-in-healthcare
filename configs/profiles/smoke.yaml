@@ -15,6 +15,7 @@ train:
 arbiter:
   model: mock
   endpoint: null
+  n_cases: 8
 eval:
   bootstrap_B: 50
 preflight:

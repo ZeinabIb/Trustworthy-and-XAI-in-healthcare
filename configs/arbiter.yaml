@@ -1,0 +1,25 @@
+# Verified arbiter (Phase 5). Merged into base.yaml; profiles may override only arbiter.model, arbiter.endpoint,
+# arbiter.model_digest and arbiter.n_cases. The LLM is open-weight and LOCAL (never a third-party API).
+
+arbiter:
+  model_digest: null          # pinned weights digest of arbiter.model (checked against the server before any call)
+  prompt_version: v1
+  prompt_file: configs/prompts/arbiter_v1.txt
+  repair_file: configs/prompts/arbiter_repair_v1.txt
+  max_facts: 12               # prior RadGraph facts per packet (most recent first, then certainty)
+  index_text_chars: 600       # pre-read text of the index study, truncated
+  max_claims: 6
+  temperature: 0.7            # voting runs: three seeds must be able to differ
+  top_p: 0.95
+  seeds: [1, 2, 3]
+  vote: majority              # majority (>= 2 of 3) | unanimous (3 of 3)
+  retries_invalid: 1          # repair prompt once, then the run is invalid (counts as no answer)
+  max_tokens: 600
+  timeout_s: 180
+  unaddressed_reliable_parent_is_violation: true   # plan 5 check 2 design choice
+  n_cases: 50                 # Phase 5 test run: escalated val cases (seeded sample)
+  case_seed: 0
+  packet:
+    reliability: "true"       # true | shuffled_across_patients | shuffled_swap_direction | absent (Phase 6 controls)
+    order: revealed           # revealed (classifier output shown first) | blinded (classifier output hidden)
+    shuffle_seed: 0

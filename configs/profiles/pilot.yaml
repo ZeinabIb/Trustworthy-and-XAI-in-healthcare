@@ -13,8 +13,9 @@ train:
   precision: bf16       # ignored on cpu
   seeds: [0]
 arbiter:
-  model: null           # small local model, plumbing check only (Phase 5)
-  endpoint: null
+  model: qwen2.5:7b-instruct-q4_K_M   # Zeinab 2026-10-15: pilot plumbing model (Ollama tag)
+  endpoint: http://127.0.0.1:11434/v1  # local Ollama, OpenAI-compatible API; never a remote host
+  model_digest: null                   # set after `ollama pull` (script 52 prints the digest it finds)
 eval:
   bootstrap_B: 200
 preflight:

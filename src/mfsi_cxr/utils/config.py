@@ -25,7 +25,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 CONFIG_DIR = REPO_ROOT / "configs"
 # Shared config files merged into base.yaml, in order, before the profile is applied.
 COMPONENT_FILES: tuple[str, ...] = (
-    "data.yaml", "finding_synonyms.yaml", "train.yaml", "mfsi.yaml", "eval.yaml",
+    "data.yaml", "finding_synonyms.yaml", "train.yaml", "mfsi.yaml", "eval.yaml", "arbiter.yaml",
 )
 
 # Dotted keys a profile is allowed to override. Everything else must equal base.yaml.
@@ -44,6 +44,8 @@ ALLOWED_PROFILE_KEYS: frozenset[str] = frozenset(
         "train.seeds",
         "arbiter.model",
         "arbiter.endpoint",
+        "arbiter.model_digest",   # pins the weights of arbiter.model (DECISIONS 2026-10-15)
+        "arbiter.n_cases",        # size of the Phase 5 test run
         "eval.bootstrap_B",
         "preflight.min_free_disk_gb",
         "preflight.min_free_gpu_gb",

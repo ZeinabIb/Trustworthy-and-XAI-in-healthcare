@@ -1,3 +1,4 @@
+annotated-types==0.8.0
 branca==0.8.2
 certifi==2026.7.22
 charset-normalizer==3.5.2
@@ -38,9 +39,11 @@ partd==1.4.2
 patsy==1.0.3
 pillow==11.0.0
 pluggy==1.6.0
-polars==2.0.0
 polars-runtime-32==2.0.0
+polars==2.0.0
 pyarrow==18.1.0
+pydantic-core==2.27.1
+pydantic==2.10.3
 pydicom==3.0.1
 pyogrio==0.13.0
 pyparsing==3.3.3
@@ -73,8 +76,8 @@ tqdm==4.70.1
 transformers==4.46.3
 typing-extensions==4.16.0
 tzdata==2026.5
-urllib3==2.8.0
 urllib3-future==2.25.902
+urllib3==2.8.0
 wassima==2.1.4
 xyzservices==2026.9.1
 zipp==4.1.1

@@ -25,6 +25,8 @@ dependencies = [
     "torchvision==0.20.1",
     "transformers==4.46.3",
     "torchxrayvision==1.5.5",   # MIMIC-CXR DenseNet121 (densenet121-res224-mimic_ch)
+    "pydantic==2.10.3",         # arbiter output schema (Phase 5)
+    "requests==2.34.2",         # arbiter client: local OpenAI-compatible server (Ollama / vLLM)
 ]
 
 [project.optional-dependencies]
