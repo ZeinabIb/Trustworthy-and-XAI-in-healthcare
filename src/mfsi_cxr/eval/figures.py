@@ -248,3 +248,32 @@ def claims_verified_figure(per_finding, path: Path, title: str) -> None:
     fig.tight_layout()
     fig.savefig(path, dpi=120, facecolor=SURFACE)
     plt.close(fig)
+
+
+def pipeline_figure(path: Path) -> None:
+    """Static pipeline overview (no data): boxes and arrows of the method, left to right."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
+
+    steps = ["Images + pre-read text\n(+ prior reports)", "Two-level MIL\nclassifier (flat head)",
+             "MFSI\nreliability R", "Escalate?\n(R < theta_R or flag)",
+             "Evidence packet\n(no labels, no report)", "Local LLM arbiter\n3-seed vote",
+             "Label-tree rule\n+ evidence removal", "Shown with tags\nor human review"]
+    fig, ax = plt.subplots(figsize=(14, 2.6), facecolor=SURFACE)
+    ax.set_facecolor(SURFACE)
+    ax.set_xlim(0, len(steps))
+    ax.set_ylim(0, 1)
+    ax.axis("off")
+    for k, s in enumerate(steps):
+        ax.add_patch(FancyBboxPatch((k + 0.08, 0.25), 0.84, 0.5, boxstyle="round,pad=0.02",
+                                    facecolor=SURFACE, edgecolor=SLOTS[0], linewidth=1.5))
+        ax.text(k + 0.5, 0.5, s, ha="center", va="center", fontsize=8.5, color=INK)
+        if k:
+            ax.add_patch(FancyArrowPatch((k - 0.08, 0.5), (k + 0.08, 0.5), arrowstyle="-|>",
+                                         mutation_scale=10, color=MUTED))
+    fig.tight_layout()
+    fig.savefig(path, dpi=150, facecolor=SURFACE)
+    plt.close(fig)

@@ -44,6 +44,7 @@ STEPS: list[tuple[str, list[str], tuple[str, ...]]] = [
     ("51_build_packets.py", [], ALL),
     ("52_run_arbiter.py", [], ALL),
     ("53_render_examples.py", [], ("smoke",)),   # synthetic examples only
+    ("60_arbiter_experiments_dev.py", [], ALL),
 ]
 
 
