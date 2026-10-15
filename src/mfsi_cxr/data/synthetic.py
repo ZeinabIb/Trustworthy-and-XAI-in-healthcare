@@ -49,8 +49,36 @@ def pre_read_text(section: str, study_id: str) -> str:
     return f"pre-read {section.removeprefix('section_')} of {study_tag(study_id)}"
 
 
+SYNTHETIC_MARKER = ".mfsi_synthetic"
+
+
+class NotSyntheticRootError(RuntimeError):
+    """Refusal to write synthetic data into a folder that may hold real data."""
+
+
+def check_synthetic_root(root: Path) -> None:
+    """Synthetic data may only be written to a folder inside the repo's tests/fixtures, a missing or empty
+    folder, or a folder already marked synthetic (SYNTHETIC_MARKER). Anything else may be a real data root
+    (incident 2026-10-15) and is refused."""
+    from mfsi_cxr.utils.config import REPO_ROOT
+
+    root = Path(root).resolve()
+    fixtures = (REPO_ROOT / "tests" / "fixtures").resolve()
+    if root == fixtures or fixtures in root.parents:
+        return
+    if not root.exists() or not any(root.iterdir()) or (root / SYNTHETIC_MARKER).exists():
+        return
+    raise NotSyntheticRootError(f"refusing to write synthetic data into {root}: not under tests/fixtures, "
+                                f"not empty and not marked {SYNTHETIC_MARKER} (it may hold real data)")
+
+
 def make_synthetic_dataset(root: Path, cfg: dict[str, Any]) -> dict[str, Path]:
-    """Write metadata, labels and tiny PNGs under `root`. Returns the written file paths."""
+    """Write metadata, labels and tiny PNGs under `root` (after check_synthetic_root) and mark the folder
+    synthetic. Returns the written file paths."""
+    check_synthetic_root(root)
+    Path(root).mkdir(parents=True, exist_ok=True)
+    (Path(root) / SYNTHETIC_MARKER).write_text("synthetic data written by mfsi_cxr; never real data\n",
+                                               encoding="utf-8")
     syn = cfg["synthetic"]
     rng = np.random.default_rng(syn["seed"])
     cols = cfg["data"]["columns"]

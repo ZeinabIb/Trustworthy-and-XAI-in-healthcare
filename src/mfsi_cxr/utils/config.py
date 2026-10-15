@@ -19,6 +19,7 @@ PROFILES: tuple[str, ...] = ("smoke", "pilot", "full")
 DEFAULT_PROFILE = "pilot"
 PROFILE_ENV = "MFSI_PROFILE"
 DATA_ROOT_ENV = "MFSI_DATA_ROOT"
+SYNTHETIC_PROFILE = "smoke"  # the only profile whose data root is synthetic; it ignores DATA_ROOT_ENV
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CONFIG_DIR = REPO_ROOT / "configs"
@@ -114,14 +115,16 @@ def load_shared(config_dir: Path | None = None) -> dict[str, Any]:
 
 
 def load_config(profile: str | None = None, config_dir: Path | None = None) -> dict[str, Any]:
-    """Merged config for a profile, with `profile` set and `data.root` overridable by env."""
+    """Merged config for a profile, with `profile` set and `data.root` overridable by env. The smoke profile
+    never takes MFSI_DATA_ROOT: it always uses its synthetic fixture root (incident 2026-10-15: a smoke run
+    with the env var set wrote synthetic data into the real data root)."""
     name = resolve_profile(profile)
     cdir = config_dir or CONFIG_DIR
     base = load_shared(cdir)
     merged = deep_merge(base, _read_yaml(cdir / "profiles" / f"{name}.yaml"))
     check_profile_keys(base, merged)
     env_root = os.environ.get(DATA_ROOT_ENV)
-    if env_root:
+    if env_root and name != SYNTHETIC_PROFILE:
         merged["data"]["root"] = env_root
     merged["profile"] = name
     return merged

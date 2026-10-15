@@ -57,6 +57,13 @@ def test_profile_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_data_root_env_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv(DATA_ROOT_ENV, str(tmp_path))
     assert load_config("pilot")["data"]["root"] == str(tmp_path)
+    assert load_config("full")["data"]["root"] == str(tmp_path)
+
+
+def test_smoke_ignores_the_data_root_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Incident 2026-10-15: smoke must never point at a real data root."""
+    monkeypatch.setenv(DATA_ROOT_ENV, str(tmp_path))
+    assert load_config("smoke")["data"]["root"] == "tests/fixtures/smoke_root"
 
 
 def test_config_hash_is_stable_and_sensitive() -> None:
