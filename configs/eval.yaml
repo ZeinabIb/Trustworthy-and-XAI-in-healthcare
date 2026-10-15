@@ -7,3 +7,6 @@ eval:
   bootstrap_seed: 0
   blank_policy: negative          # correctness on y in {0,1} with blank -> 0 (DECISIONS 2026-10-11) | exclude
   r_deciles: 10                   # calibration of R: accuracy within deciles
+  lof_neighbors: 20               # LocalOutlierFactor baseline (scikit-learn default)
+  reference: mfsi                 # score every baseline is compared with (paired AURC difference, DeLong)
+  blank_shift_warn: 0.01          # |macro AURC change| with blanks excluded above this -> STOP-AND-ASK

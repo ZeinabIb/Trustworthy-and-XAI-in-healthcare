@@ -37,11 +37,13 @@ def cumulative_errors(trust: np.ndarray, correct: np.ndarray) -> np.ndarray:
     out = np.zeros(n + 1)
     if n == 0:
         return out
-    ends = np.r_[np.flatnonzero(np.diff(t) != 0) + 1, n]  # exclusive end of each tied group
-    starts = np.r_[0, ends[:-1]]
-    for s, end in zip(starts, ends, strict=True):
-        rate = e[s:end].mean()
-        out[s + 1:end + 1] = out[s] + rate * np.arange(1, end - s + 1)
+    starts = np.r_[0, np.flatnonzero(np.diff(t) != 0) + 1]   # first index of each tied group
+    sizes = np.diff(np.r_[starts, n])
+    group_err = np.add.reduceat(e, starts)
+    before = np.r_[0.0, np.cumsum(group_err)[:-1]]           # errors in all more-trusted groups
+    rate = np.repeat(group_err / sizes, sizes)
+    offset = np.arange(n) - np.repeat(starts, sizes) + 1     # position inside the group, 1-based
+    out[1:] = np.repeat(before, sizes) + rate * offset
     return out
 
 
