@@ -34,13 +34,15 @@ def write(table: pd.DataFrame, name: str, cfg: dict) -> None:
 def main(argv: list[str] | None = None) -> int:
     cfg = config_from_args(base_parser(__doc__.splitlines()[0]).parse_args(argv))
     e = cfg["eval"]
-    d = pipeline.collect(cfg, SPLIT, list(cfg["train"]["seeds"]))
+    d = pipeline.collect(cfg, SPLIT, list(cfg["train"]["seeds"]), oof=True)
     res = pipeline.run(cfg, d)
     for key, table in res.items():
         write(table, f"rq1_dev_{key}", cfg)
     sens, elig = pipeline.blank_sensitivity(cfg, d, res["main"])
     write(sens, "rq1_dev_blank_sensitivity", cfg)
     write(elig, "rq1_dev_blank_eligibility", cfg)
+    write(pipeline.sparse_fold_table(d), "rq1_dev_calibration_sparse_folds", cfg)
+    write(pipeline.decision_table(cfg, d), "rq1_dev_decisions", cfg)
     calib = pipeline.profile_calibration(cfg, d)
     write(calib, "rq1_dev_profile_calibration", cfg)
 

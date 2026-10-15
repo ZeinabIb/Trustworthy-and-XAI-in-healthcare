@@ -11,6 +11,7 @@ caller decides the split (val dev path in 44_added_value_dev, test only behind t
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -92,32 +93,33 @@ def score_combined(model: Combined, data: SeedArrays) -> np.ndarray:
     return out
 
 
-def crossval_combined(val: SeedArrays, patient_id: np.ndarray, cfg_av: dict[str, Any],
-                      eligible: np.ndarray, seed: int) -> tuple[np.ndarray, np.ndarray]:
-    """Dev path: out-of-fold combined trust on val (patient-grouped K folds) and the per-finding eligibility
-    after the fold check (a training part lacking a class makes the finding n/a)."""
-    from sklearn.model_selection import GroupKFold
-
+def crossval_combined(val: SeedArrays, folds: np.ndarray, cfg_av: dict[str, Any], eligible: np.ndarray,
+                      inner: Callable[[int], SeedArrays]) -> tuple[np.ndarray, np.ndarray]:
+    """Dev path: out-of-fold combined trust on val with NESTED calibration (y_hat v2 amendment 4). For outer
+    fold k the model is trained on the other folds' rows with inner(k) arrays (their MSP / correct from a
+    calibration that never saw fold k) and applied to fold k with `val` (outer out-of-fold arrays). A training
+    part lacking a class makes the finding n/a. Returns (trust (N, L), per-finding ok)."""
     out = np.full(val.msp.shape, np.nan)
     ok = eligible.copy()
-    _, groups = np.unique(patient_id, return_inverse=True)
-    if groups.max() + 1 < cfg_av["cv_folds"] or not ok.any():
-        log.info("added value (a) dev: %d patients < %d folds or nothing eligible -> all n/a",
-                 groups.max() + 1, cfg_av["cv_folds"])
+    ks = np.unique(folds)
+    if len(ks) < cfg_av["cv_folds"] or not ok.any():
+        log.info("added value (a) dev: %d folds < %d or nothing eligible -> all n/a", len(ks),
+                 cfg_av["cv_folds"])
         return out, np.zeros_like(ok)
-    perm = np.random.default_rng(seed).permutation(groups.max() + 1)  # seeded fold assignment of patients
-    folds = list(GroupKFold(n_splits=cfg_av["cv_folds"]).split(val.msp, groups=perm[groups]))
-    for j, f in enumerate(FINDINGS):
-        if not ok[j]:
-            continue
-        for tr, te in folds:
-            tr_u, te_u = tr[val.used[tr, j]], te[val.used[te, j]]
-            if len(np.unique(val.correct[tr_u, j])) < 2:
-                log.info("added value (a) dev: %s fold lacks a class -> n/a", f)
+    for k in ks:
+        tr_arr = inner(int(k))
+        tr_rows, te_rows = np.flatnonzero(folds != k), np.flatnonzero(folds == k)
+        for j, f in enumerate(FINDINGS):
+            if not ok[j]:
+                continue
+            tr = tr_rows[tr_arr.used[tr_rows, j]]
+            te = te_rows[val.used[te_rows, j]]
+            if len(np.unique(tr_arr.correct[tr, j])) < 2:
+                log.info("added value (a) dev: %s training folds lack a class -> n/a", f)
                 ok[j] = False
-                break
-            m = _fit_one(_features(val.msp[tr_u, j], val.mfsi[tr_u, j]), val.correct[tr_u, j], cfg_av)
-            out[te_u, j] = _predict(m, _features(val.msp[te_u, j], val.mfsi[te_u, j]))
+                continue
+            m = _fit_one(_features(tr_arr.msp[tr, j], tr_arr.mfsi[tr, j]), tr_arr.correct[tr, j], cfg_av)
+            out[te, j] = _predict(m, _features(val.msp[te, j], val.mfsi[te, j]))
     out[:, ~ok] = np.nan
     return out, ok
 

@@ -3,7 +3,8 @@
 escalate_l = [R_l < theta_R] or flag_l. theta_R escalates a fixed share of val cases (10/25/50%), per
 finding (mfsi.theta_scope: finding; Zeinab 2026-10-15: a pooled threshold escalated by prevalence) or per
 stratum (the plan as written); one-witness and two-witness R are never thresholded on the same scale. The
-classifier call y_hat uses a per-finding threshold fixed on val (Youden's J by default), not 0.5.
+classifier call y_hat comes from mfsi.yhat (y_hat v2: Platt-calibrated p >= 0.5); yhat_threshold below serves
+the old Youden / F1 rules and the Youden sensitivity.
 """
 
 from __future__ import annotations

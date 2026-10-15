@@ -62,8 +62,12 @@ def test_combined_gains_when_mfsi_adds_information(cfg: dict[str, Any]) -> None:
 def test_crossval_is_out_of_fold_and_flags_negative_coefficients(cfg: dict[str, Any]) -> None:
     a = cfg["eval"]["added_value"]
     val, pid = _arrays(3, -6.0)                   # MFSI anti-informative: coefficient must be negative
-    oof, ok = av.crossval_combined(val, pid, a, av.eligible_a(val, a), seed=0)
-    assert ok.all() and np.isfinite(oof).all()
+    from mfsi_cxr.mfsi.yhat import make_folds
+
+    folds = make_folds(pid, a["cv_folds"], seed=0)
+    calls = []
+    oof, ok = av.crossval_combined(val, folds, a, av.eligible_a(val, a), lambda k: calls.append(k) or val)
+    assert ok.all() and np.isfinite(oof).all() and sorted(calls) == list(range(a["cv_folds"]))
     coefs = av.coefficient_table([av.fit_combined(val, a, ok)], [0])
     assert coefs["mfsi_coef_negative"].all()
 

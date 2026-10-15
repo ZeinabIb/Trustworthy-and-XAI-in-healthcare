@@ -2,12 +2,16 @@
 
 Shared by scripts/40_eval_rq1_dev.py (val) and scripts/41_run_rq1_final.py (test, behind the freeze guard).
 Rows must be the same samples in the same order for every seed (checked).
+
+y_hat v2 (docs/PROPOSAL_YHAT_V2.md): on the dev path (`oof=True`, val) y_hat, the decision-centred probability
+q and MSP = max(q, 1 - q) are OUT-OF-FOLD (rule fitted on the other val folds, patient-grouped), so dev error
+rates are not in-sample; on the final path they come from the parquet (rule fitted on all val, frozen).
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -18,6 +22,7 @@ from mfsi_cxr.constants import FINDINGS
 from mfsi_cxr.eval.baselines import all_scores
 from mfsi_cxr.eval.calibration import ece_mce
 from mfsi_cxr.eval.rq1 import Inputs, evaluate
+from mfsi_cxr.mfsi import yhat
 from mfsi_cxr.mfsi.fit import load_split, tau_targets
 from mfsi_cxr.utils.io import artifact_dir, check_artifact, read_table
 
@@ -32,9 +37,16 @@ class SplitData:
     y: np.ndarray
     patient_id: np.ndarray
     strata: dict[str, str]
+    probs: list[np.ndarray] = field(default_factory=list)       # raw classifier p per seed
+    q: list[np.ndarray] = field(default_factory=list)           # decision-centred probability per seed
+    folds: np.ndarray | None = None                             # dev path: fold per row
+    sparse: list[np.ndarray] = field(default_factory=list)      # dev path: (n_folds, L) sparse-fold flags
 
 
-def collect(cfg: dict[str, Any], split: str, seeds: list[int]) -> SplitData:
+def collect(cfg: dict[str, Any], split: str, seeds: list[int], oof: bool = False) -> SplitData:
+    """All seeds of a split. oof=True (dev, val only): out-of-fold y_hat / q / MSP."""
+    if oof and split != "val":
+        raise ValueError("the out-of-fold dev path is for val only")
     raw, tables, y_hat, params_all = [], [], [], []
     for seed in seeds:
         path = artifact_dir(cfg) / f"mfsi_params_seed{seed}.json"
@@ -53,11 +65,32 @@ def collect(cfg: dict[str, Any], split: str, seeds: list[int]) -> SplitData:
     for seed, (_, data, _, _) in zip(seeds, raw, strict=True):
         if not np.array_equal(data["study_id"], ref["study_id"]):
             raise ValueError(f"seed {seed}: {split} samples differ from seed {seeds[0]} (order or content)")
-    probs_by_seed = [data["probs"] for _, data, _, _ in raw]
-    scores = [all_scores(train, data, table, cfg, params, probs_by_seed)
-              for train, data, table, params in raw]
+    probs = [data["probs"] for _, data, _, _ in raw]
+    n = len(ref["study_id"])
+    folds, sparse = None, []
+    if oof:
+        m, e = cfg["mfsi"], cfg["eval"]
+        label, used = tau_targets(ref["y"], m["uncertain_policy"])
+        folds = yhat.make_folds(ref["patient_id"], e["calib_cv_folds"], e["calib_cv_seed"])
+        q, y_hat = [], []
+        for p in probs:
+            qq, yh, _, sp = yhat.out_of_fold(m["yhat_rule"], p, label, used, folds, m["platt_eps"])
+            q.append(qq)
+            y_hat.append(yh)
+            sparse.append(sp)
+    else:
+        q = [t["prob_cal"].to_numpy().reshape(n, len(FINDINGS)) for t in tables]
+    scores = [all_scores(train, data, table, cfg, params, qq, q)
+              for (train, data, table, params), qq in zip(raw, q, strict=True)]
     return SplitData(split, list(seeds), scores, y_hat, tables, ref["y"], ref["patient_id"],
-                     params_all[0]["strata"])
+                     params_all[0]["strata"], probs, q, folds, sparse)
+
+
+def sparse_fold_table(d: SplitData) -> pd.DataFrame:
+    """Dev path: calibration folds whose training part had 0 or 1 positives, per seed and finding."""
+    return pd.DataFrame([{"seed": seed, "finding": f, "n_folds": int(sp.shape[0]),
+                          "flagged_folds": int(sp[:, j].sum())}
+                         for seed, sp in zip(d.seeds, d.sparse, strict=True) for j, f in enumerate(FINDINGS)])
 
 
 def run(cfg: dict[str, Any], d: SplitData, blank_policy: str | None = None,
@@ -124,4 +157,26 @@ def profile_calibration(cfg: dict[str, Any], d: SplitData) -> pd.DataFrame:
                 ea, ma = ece_mce(after[u, j], label[u, j], bins)
                 rows.append({"split": d.split, "seed": seed, "modality": m, "finding": f, "n": int(u.sum()),
                              "ece_before": eb, "mce_before": mb, "ece_after": ea, "mce_after": ma})
+    return pd.DataFrame(rows)
+
+
+def decision_table(cfg: dict[str, Any], d: SplitData) -> pd.DataFrame:
+    """Per seed and finding on the scored rows: prevalence (blank policy), predicted-positive rate, error rate
+    and the share of errors that are false negatives, plus raw vs decision-centred ECE (equal mass)."""
+    from mfsi_cxr.eval.selective import correctness
+
+    e = cfg["eval"]
+    rows = []
+    for seed, yh, q, p in zip(d.seeds, d.y_hat, d.q, d.probs, strict=True):
+        c, u = correctness(d.y, yh, e["blank_policy"])
+        for j, f in enumerate(FINDINGS):
+            uj = u[:, j]
+            pos = d.y[uj, j] == 1
+            pred = yh[uj, j].astype(bool)
+            err = ~c[uj, j]
+            rows.append({"seed": seed, "finding": f, "n_used": int(uj.sum()), "prevalence": float(pos.mean()),
+                         "pred_pos_rate": float(pred.mean()), "error_rate": float(err.mean()),
+                         "fn_share_of_errors": float((err & pos).sum() / max(err.sum(), 1)),
+                         "ece_raw": ece_mce(p[uj, j], pos.astype(float), e["calibration_bins"])[0],
+                         "ece_decision_prob": ece_mce(q[uj, j], pos.astype(float), e["calibration_bins"])[0]})
     return pd.DataFrame(rows)

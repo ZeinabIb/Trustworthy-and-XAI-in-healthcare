@@ -28,8 +28,10 @@ def setup(cfg: dict[str, Any]):
     train, val = _export(300, "train", 0), _export(150, "val", 1)
     params = fit_mfsi(train, val, cfg, INFORMATIVE, seed=0)
     table = score_split(train, val, params, cfg)
-    scores = all_scores(train, val, table, cfg, params)
-    y_hat = table["y_hat"].to_numpy().reshape(len(val["study_id"]), len(FINDINGS))
+    n = len(val["study_id"])
+    q = table["prob_cal"].to_numpy().reshape(n, len(FINDINGS))
+    scores = all_scores(train, val, table, cfg, params, q, [q])
+    y_hat = table["y_hat"].to_numpy().reshape(n, len(FINDINGS))
     return train, val, params, table, scores, y_hat
 
 

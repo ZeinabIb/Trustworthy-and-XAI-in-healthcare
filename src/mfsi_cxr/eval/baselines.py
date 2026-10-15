@@ -1,8 +1,8 @@
 """Baselines for RQ1 (Phase 4), all from the same frozen exports; every score is a TRUST score (N, L),
 higher = more reliable.
 
-- msp: max(p, 1 - p) of the classifier probability.
-- ensemble_var: minus the variance of p across seeds (needs >= 2 seeds; absent otherwise).
+- msp: max(q, 1 - q) of the decision-centred probability q of the y_hat rule (y_hat v2: q = p_cal).
+- ensemble_var: minus the variance of q across seeds (needs >= 2 seeds; absent otherwise).
 - Distance baselines run in MFSI's train-PCA space (Zeinab 2026-10-15), per modality and on the concatenation
   [P_img z_img ; P_txt z_txt]; clouds and prototypes from TRAIN, as in MFSI:
   - tied_maha_*: Lee et al. 2018, one covariance shared by all class-centred train vectors (pooled over the
@@ -99,13 +99,14 @@ def mfsi_scores(table: pd.DataFrame, n: int) -> dict[str, np.ndarray]:
 
 
 def all_scores(train: dict[str, np.ndarray], data: dict[str, np.ndarray], table: pd.DataFrame,
-               cfg: dict[str, Any], params: dict[str, Any],
-               probs_by_seed: list[np.ndarray] | None = None) -> dict[str, np.ndarray]:
-    """Every trust score for one split and seed, keyed by name. ensemble_var only with >= 2 seeds."""
+               cfg: dict[str, Any], params: dict[str, Any], q: np.ndarray,
+               q_by_seed: list[np.ndarray]) -> dict[str, np.ndarray]:
+    """Every trust score for one split and seed, keyed by name; q is this seed's decision-centred
+    probability (MSP = max(q, 1 - q)). ensemble_var only with >= 2 seeds."""
     n = len(data["study_id"])
     scores = mfsi_scores(table, n)
-    scores["msp"] = msp(data["probs"])
-    ens = ensemble_var(probs_by_seed or [data["probs"]])
+    scores["msp"] = msp(q)
+    ens = ensemble_var(q_by_seed)
     if ens is not None:
         scores["ensemble_var"] = ens
     for space, (zt, z) in project(train, data, cfg, params).items():

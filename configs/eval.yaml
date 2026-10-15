@@ -5,6 +5,8 @@ eval:
   calibration_bins: 15            # equal-mass bins for ECE / MCE of the profiles
   alpha: 0.05                     # CIs are (1 - alpha); BH false-discovery rate across the 14 findings
   bootstrap_seed: 0
+  calib_cv_folds: 5               # y_hat v2 dev path: out-of-fold rule on val (patient-grouped)
+  calib_cv_seed: 0                #   fold assignment seed (also the added-value (a) dev CV folds)
   blank_policy: negative          # correctness on y in {0,1} with blank -> 0 (DECISIONS 2026-10-11) | exclude
   r_deciles: 10                   # calibration of R: accuracy within deciles
   lof_neighbors: 20               # LocalOutlierFactor baseline (scikit-learn default)

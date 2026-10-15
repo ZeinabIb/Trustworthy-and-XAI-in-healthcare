@@ -27,10 +27,11 @@ from scipy.optimize import minimize
 from scipy.special import expit
 
 from mfsi_cxr.constants import FINDINGS
+from mfsi_cxr.mfsi import yhat
 from mfsi_cxr.mfsi.clouds import cloud_masks, prototype
 from mfsi_cxr.mfsi.covariance import fit_covariances, make_pd, raw_covariance, shrink
 from mfsi_cxr.mfsi.distance import Gaussian
-from mfsi_cxr.mfsi.escalation import escalate, finding_thresholds, stratum_thresholds, yhat_threshold
+from mfsi_cxr.mfsi.escalation import escalate, finding_thresholds, stratum_thresholds
 from mfsi_cxr.mfsi.hierarchy import coherence_flags
 from mfsi_cxr.mfsi.profile import margin, profile_pos
 from mfsi_cxr.mfsi.reduce import Projection, fit_projection
@@ -40,10 +41,11 @@ from mfsi_cxr.utils.logging import get_logger
 log = get_logger("mfsi")
 MODALITIES = (("img", "z_img"), ("txt", "z_txt"))
 THETA_SCOPES = ("finding", "stratum")
-# Output columns of mfsi_{split}_seed{k}.parquet, in the order of plan 3 "Outputs".
-COLUMNS = ("patient_id", "study_id", "finding", "y", "y_hat", "prob", "p_img_pos", "p_txt_pos", "d_img_pos",
-           "d_img_neg", "d_txt_pos", "d_txt_neg", "r_img", "r_txt", "A_cos", "A_js", "R", "R_mean", "stratum",
-           "flag", "escalate", "n_studies", "n_images", "text_len")
+# Output columns of mfsi_{split}_seed{k}.parquet, in the order of plan 3 "Outputs", plus prob_cal (y_hat v2:
+# the decision-centred probability q of the y_hat rule; MSP = max(q, 1 - q)).
+COLUMNS = ("patient_id", "study_id", "finding", "y", "y_hat", "prob", "prob_cal", "p_img_pos", "p_txt_pos",
+           "d_img_pos", "d_img_neg", "d_txt_pos", "d_txt_neg", "r_img", "r_txt", "A_cos", "A_js", "R",
+           "R_mean", "stratum", "flag", "escalate", "n_studies", "n_images", "text_len")
 
 
 class SplitError(ValueError):
@@ -255,8 +257,11 @@ def fit_mfsi(train: dict[str, np.ndarray], val: dict[str, np.ndarray], cfg: dict
             log.warning("tau_%s at the grid boundary for %s: STOP-AND-ASK", name, edge)
     scored = score_arrays(mods, val, params, cfg, thresholds=None)
     label, used = tau_targets(val["y"], m["uncertain_policy"])
-    params["yhat_threshold"] = {f: yhat_threshold(val["probs"][used[:, j], j], label[used[:, j], j],
-                                                  m["yhat_rule"]) for j, f in enumerate(FINDINGS)}
+    # y_hat v2 (amendment 1): fitted on ALL val scored rows, frozen here, applied unchanged to test.
+    params["yhat"] = {"rule": m["yhat_rule"], "version": yhat.VERSION, "eps": m["platt_eps"],
+                      "per_finding": {f: yhat.fit_rule(m["yhat_rule"], val["probs"][used[:, j], j],
+                                                       label[used[:, j], j], m["platt_eps"])
+                                      for j, f in enumerate(FINDINGS)}}
     strata = np.array([stratum_of(f, text_informative) for f in FINDINGS])
     params["strata"] = dict(zip(FINDINGS, strata.tolist(), strict=True))
     params["theta_R"] = stratum_thresholds(scored["R"], strata, m["escalate_fractions"])
@@ -297,8 +302,9 @@ def score_arrays(mods: dict[str, Modality], data: dict[str, np.ndarray], params:
     out["R"] = np.where(one_witness[None, :], out["r_img"], two)        # R_one = r_img for one-witness
     out["R_mean"] = np.where(one_witness[None, :], out["r_img"], two_mean)
     if thresholds is not None:
-        thr = np.array([thresholds["yhat_threshold"][f] for f in FINDINGS])
-        out["y_hat"] = data["probs"] >= thr[None, :]
+        y = thresholds["yhat"]
+        out["prob_cal"], out["y_hat"], out["msp"] = yhat.apply_all(
+            y["rule"], [y["per_finding"][f] for f in FINDINGS], data["probs"], y["eps"])
         theta_r = theta_vector(thresholds, m["operating_fraction"])
         out["flag"] = coherence_flags(out["y_hat"], out["R"], theta_r)
         out["escalate"] = escalate(out["R"], theta_r, out["flag"])
@@ -322,7 +328,8 @@ def score_split(train: dict[str, np.ndarray], data: dict[str, np.ndarray], param
         "finding": np.tile(np.array(FINDINGS), n), "y": data["y"].ravel(), "prob": data["probs"].ravel(),
         "stratum": np.tile(np.array([params["strata"][f] for f in FINDINGS]), n),
     }
-    for k in ("y_hat", "p_img_pos", "p_txt_pos", "d_img_pos", "d_img_neg", "d_txt_pos", "d_txt_neg",
+    for k in ("y_hat", "prob_cal", "p_img_pos", "p_txt_pos", "d_img_pos", "d_img_neg", "d_txt_pos",
+              "d_txt_neg",
               "r_img", "r_txt", "A_cos", "A_js", "R", "R_mean", "flag", "escalate"):
         rows[k] = s[k].ravel()
     for k in ("n_studies", "n_images", "text_len"):

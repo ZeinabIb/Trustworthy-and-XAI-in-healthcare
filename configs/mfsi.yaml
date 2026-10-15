@@ -19,7 +19,9 @@ mfsi:
   ece_bins: 15
   agreement: cos              # cos (primary) | js (1 - JS, base 2) | none (ablation: A = 1)
   combine: min                # min (primary) | mean (ablation)
-  yhat_rule: youden           # per-finding classifier threshold on val: youden | f1
+  yhat_rule: platt            # y_hat v2 (Zeinab 2026-10-15): platt (y_hat = p_cal >= 0.5) | youden_coherent
+                              #   (sensitivity) | youden | f1 (old rules, reproduction only)
+  platt_eps: 1.0e-6           # p clipped to [eps, 1 - eps] before logit
   escalate_fractions: [0.10, 0.25, 0.50]    # theta_R escalates these shares of val cases
   theta_scope: finding        # finding (Zeinab 2026-10-15: own theta_R per finding) | stratum (plan as written)
   operating_fraction: 0.25    # default operating point

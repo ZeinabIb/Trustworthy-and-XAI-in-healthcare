@@ -11,10 +11,11 @@ import pytest
 from mfsi_cxr.constants import FINDINGS
 from mfsi_cxr.mfsi.fit import SplitError, _platt, fit_mfsi, fit_tau, score_split
 from mfsi_cxr.mfsi.profile import profile_pos
+# plan 3 "Outputs", spelled out, plus prob_cal (y_hat v2)
 
-COLUMNS = ["patient_id", "study_id", "finding", "y", "y_hat", "prob", "p_img_pos", "p_txt_pos", "d_img_pos",
-           "d_img_neg", "d_txt_pos", "d_txt_neg", "r_img", "r_txt", "A_cos", "A_js", "R", "R_mean", "stratum",
-           "flag", "escalate", "n_studies", "n_images", "text_len"]  # plan 3 "Outputs", spelled out
+COLUMNS = ["patient_id", "study_id", "finding", "y", "y_hat", "prob", "prob_cal", "p_img_pos", "p_txt_pos",
+           "d_img_pos", "d_img_neg", "d_txt_pos", "d_txt_neg", "r_img", "r_txt", "A_cos", "A_js", "R",
+           "R_mean", "stratum", "flag", "escalate", "n_studies", "n_images", "text_len"]  # plan 3 "Outputs", spelled out
 
 
 def _export(n: int, split: str, seed: int, d: int = 12) -> dict[str, np.ndarray]:
@@ -200,3 +201,15 @@ def test_theta_scope_is_validated(cfg: dict[str, Any]) -> None:
     cfg["mfsi"]["theta_scope"] = "global"
     with pytest.raises(ValueError, match="theta_scope"):
         fit_mfsi(_export(200, "train", 0), _export(100, "val", 1), cfg, INFORMATIVE, seed=0)
+
+
+def test_yhat_v2_is_fitted_on_val_and_applied(cfg: dict[str, Any]) -> None:
+    train, val = _export(300, "train", 0), _export(200, "val", 1)
+    params = fit_mfsi(train, val, cfg, INFORMATIVE, seed=0)
+    assert params["yhat"]["rule"] == "platt" and params["yhat"]["version"] == "yhat_v2"
+    assert set(params["yhat"]["per_finding"]) == set(FINDINGS)
+    test = _export(100, "test", 3)
+    t = score_split(train, test, params, cfg)
+    assert np.array_equal(t["y_hat"], t["prob_cal"] >= 0.5)
+    blind = dict(test, y=np.full_like(test["y"], np.nan))      # test labels never used by the rule
+    assert np.array_equal(score_split(train, blind, params, cfg)["prob_cal"], t["prob_cal"])
