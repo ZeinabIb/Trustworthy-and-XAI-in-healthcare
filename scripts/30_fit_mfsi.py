@@ -36,7 +36,7 @@ def main(argv: list[str] | None = None) -> int:
         out.parent.mkdir(parents=True, exist_ok=True)
         table.to_csv(out, index=False)
         write_meta(out, cfg, seed)
-        shown = ["n_pos", "alpha", "tau", "tau_source"]
+        shown = ["n_pos", "alpha", "tau", "tau_b", "tau_source"]
         pivot = table.pivot_table(index="finding", columns="modality", values=shown, aggfunc="first")
         print(pivot.to_string())
         for name, _ in MODALITIES:
@@ -45,8 +45,9 @@ def main(argv: list[str] | None = None) -> int:
                   f"({r['variance_kept']:.4f} of train variance)")
             t = params[f"tau_{name}"]
             note = "  STOP-AND-ASK: tau at the grid boundary" if t["at_grid_boundary"] else ""
-            print(f"seed {seed} tau_{name} = {t['tau']:.3g}  ECE {t['ece_before_tau1']:.4f} (tau=1) -> "
-                  f"{t['ece_after']:.4f}{note}")
+            print(f"seed {seed} global tau_{name} = {t['tau']:.3g}, b = {t['b']:.3g} ({t['objective']}); "
+                  f"ECE {t['ece_before_tau1']:.4f} (tau=1, b=0) -> {t['ece_after']:.4f}; log-loss "
+                  f"{t['logloss_before_tau1']:.4f} -> {t['logloss_after']:.4f}{note}")
             edge = sorted(f for f, r in t["per_finding"].items() if r["at_grid_boundary"])
             if edge:
                 print(f"STOP-AND-ASK: per-finding tau_{name} at the grid boundary for {edge}")

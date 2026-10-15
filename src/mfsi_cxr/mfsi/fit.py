@@ -4,6 +4,8 @@
   log-likelihood). tau, y_hat thresholds, theta_R per stratum: VAL only. tau is per finding and modality
   (mfsi.tau_scope: finding; Zeinab 2026-10-15), falling back to the modality's global tau when a finding has
   fewer than tau_min_class_count val positives or negatives; tau_scope: global is the plan's starting point.
+  With mfsi.offset each also gets an offset b, p+ = sigmoid((d_- - d_+ - b)/tau), fitted by log-loss (Platt;
+  Zeinab 2026-10-15): under ECE a constant p+ = prevalence would win.
 - Scoring a split needs only the fitted parameters and the train exports; its labels are copied into the
   output for later analysis but never used. The test split is scored, never looked at.
 - Each modality is first projected onto its train-PCA subspace (mfsi.reduce; reduce.py), then everything
@@ -21,6 +23,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from scipy.optimize import minimize
 from scipy.special import expit
 
 from mfsi_cxr.constants import FINDINGS
@@ -136,49 +139,91 @@ def distances(mod: Modality, z: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return d_pos, d_neg
 
 
-def _tau_search(gap: np.ndarray, target: np.ndarray, grid: np.ndarray, bins: int) -> dict[str, Any]:
-    errs = [ece(expit(gap / t), target, bins) for t in grid]
-    best = int(np.argmin(errs))
-    return {"tau": float(grid[best]), "ece_after": float(errs[best]),
-            "ece_before_tau1": ece(expit(gap), target, bins), "at_grid_boundary": best in (0, len(grid) - 1)}
+def log_loss(logit: np.ndarray, target: np.ndarray) -> float:
+    """Mean binary log-loss of sigmoid(logit) against 0/1 targets (stable form)."""
+    return float(np.mean(np.logaddexp(0.0, logit) - target * logit))
+
+
+def _evaluate(gap: np.ndarray, target: np.ndarray, tau: float, b: float, bins: int) -> dict[str, Any]:
+    """ECE and log-loss of p+ before (tau = 1, b = 0) and after calibration."""
+    if not len(gap):
+        return dict.fromkeys(("ece_before_tau1", "ece_after", "logloss_before_tau1", "logloss_after"))
+    after = (gap - b) / tau
+    return {"ece_before_tau1": ece(expit(gap), target, bins), "ece_after": ece(expit(after), target, bins),
+            "logloss_before_tau1": log_loss(gap, target), "logloss_after": log_loss(after, target)}
+
+
+def _tau_search(gap: np.ndarray, target: np.ndarray, m: dict[str, Any]) -> dict[str, Any]:
+    """ECE objective (plan 3 as written): tau on the log grid, no offset."""
+    g = m["tau_grid"]
+    grid = np.geomspace(g["min"], g["max"], g["n"])
+    best = int(np.argmin([ece(expit(gap / t), target, m["ece_bins"]) for t in grid]))
+    tau = float(grid[best])
+    return {"tau": tau, "b": 0.0, "at_grid_boundary": best in (0, len(grid) - 1),
+            **_evaluate(gap, target, tau, 0.0, m["ece_bins"])}
+
+
+def _platt(gap: np.ndarray, target: np.ndarray, m: dict[str, Any]) -> dict[str, Any]:
+    """Log-loss objective (Zeinab 2026-10-15): p+ = sigmoid((gap - b)/tau), fitted as the convex logistic
+    regression sigmoid(a gap + c) with a = 1/tau bounded to the tau_grid range (tau > 0, so the direction of
+    the gap is never flipped) and c = -b/tau free (fixed at 0 without offset). L-BFGS-B, analytic gradient."""
+    g = m["tau_grid"]
+    a_lo, a_hi = 1.0 / g["max"], 1.0 / g["min"]
+    offset = bool(m["offset"])
+
+    def objective(w: np.ndarray) -> tuple[float, np.ndarray]:
+        s = w[0] * gap + w[1]
+        resid = expit(s) - target
+        return log_loss(s, target), np.array([np.mean(resid * gap), np.mean(resid) if offset else 0.0])
+
+    prev = float(np.clip(target.mean(), 1e-6, 1 - 1e-6))
+    x0 = np.array([float(np.clip(1.0, a_lo, a_hi)), float(np.log(prev / (1 - prev))) if offset else 0.0])
+    res = minimize(objective, x0, jac=True, method="L-BFGS-B",
+                   bounds=[(a_lo, a_hi), (None, None) if offset else (0.0, 0.0)])
+    a, c = float(res.x[0]), float(res.x[1])
+    tau, b = 1.0 / a, -c / a
+    edge = bool(np.isclose(a, a_lo, rtol=1e-6) or np.isclose(a, a_hi, rtol=1e-6))
+    return {"tau": tau, "b": b, "at_grid_boundary": edge, "converged": bool(res.success),
+            **_evaluate(gap, target, tau, b, m["ece_bins"])}
 
 
 def fit_tau(d_pos: np.ndarray, d_neg: np.ndarray, y: np.ndarray, cfg: dict[str, Any]) -> dict[str, Any]:
-    """tau per modality minimising ECE of p+ against the class label on VAL: the global tau (all findings
-    pooled) and, under tau_scope 'finding', one tau per finding (global fallback when a class is too small).
-    `per_finding[f]['tau']` is what scoring uses."""
+    """Profile calibration per modality on VAL, p+ = sigmoid((d_- - d_+ - b)/tau) against the class label:
+    the global (tau, b) (all findings pooled) and, under tau_scope 'finding', one (tau, b) per finding (global
+    fallback when a class has fewer than tau_min_class_count val cases). Objective 'logloss' (Platt; b fitted
+    when offset is true) or 'ece' (plan as written; b = 0). `per_finding[f]` holds what scoring uses."""
     m = cfg["mfsi"]
     if m["tau_scope"] not in ("finding", "global"):
         raise ValueError(f"mfsi.tau_scope must be finding or global, got {m['tau_scope']!r}")
-    g = m["tau_grid"]
-    grid = np.geomspace(g["min"], g["max"], g["n"])
+    if m["tau_objective"] not in ("logloss", "ece"):
+        raise ValueError(f"mfsi.tau_objective must be logloss or ece, got {m['tau_objective']!r}")
+    if m["tau_objective"] == "ece" and m["offset"]:
+        raise ValueError("mfsi.offset needs tau_objective logloss: under ECE a constant p+ = prevalence wins")
+    fit = _platt if m["tau_objective"] == "logloss" else _tau_search
     label, used = tau_targets(y, m["uncertain_policy"])
     gap = d_neg - d_pos
-    out = _tau_search(gap[used], label[used], grid, m["ece_bins"])
+    out = fit(gap[used], label[used], m)
     per: dict[str, dict[str, Any]] = {}
     for j, f in enumerate(FINDINGS):
-        lab = label[used[:, j], j]
+        g_j, lab = gap[used[:, j], j], label[used[:, j], j]
         n_pos, n_neg = int(lab.sum()), int(len(lab) - lab.sum())
         rec: dict[str, Any] = {"n_pos": n_pos, "n_neg": n_neg}
         if m["tau_scope"] == "finding" and min(n_pos, n_neg) >= m["tau_min_class_count"]:
-            rec.update(_tau_search(gap[used[:, j], j], lab, grid, m["ece_bins"]), source="finding")
+            rec.update(fit(g_j, lab, m), source="finding")
         else:
             if m["tau_scope"] == "finding":
                 log.info("tau %s: %d val positives / %d negatives < %d -> global tau", f, n_pos, n_neg,
                          m["tau_min_class_count"])
-            g_j = gap[used[:, j], j]
-            rec.update(tau=out["tau"], source="global", at_grid_boundary=False,
-                       ece_before_tau1=ece(expit(g_j), lab, m["ece_bins"]) if len(lab) else None,
-                       ece_after=ece(expit(g_j / out["tau"]), lab, m["ece_bins"]) if len(lab) else None)
+            rec.update(tau=out["tau"], b=out["b"], source="global", at_grid_boundary=False,
+                       **_evaluate(g_j, lab, out["tau"], out["b"], m["ece_bins"]))
         per[f] = rec
-    out["scope"] = m["tau_scope"]
-    out["per_finding"] = per
+    out["scope"], out["objective"], out["per_finding"] = m["tau_scope"], m["tau_objective"], per
     return out
 
 
-def tau_vector(tau_params: dict[str, Any]) -> np.ndarray:
-    """The (L,) tau used for scoring, in FINDINGS order."""
-    return np.array([tau_params["per_finding"][f]["tau"] for f in FINDINGS])
+def tau_vector(tau_params: dict[str, Any], key: str = "tau") -> np.ndarray:
+    """The (L,) tau (or offset, key='b') used for scoring, in FINDINGS order."""
+    return np.array([tau_params["per_finding"][f][key] for f in FINDINGS])
 
 
 def fit_mfsi(train: dict[str, np.ndarray], val: dict[str, np.ndarray], cfg: dict[str, Any],
@@ -225,11 +270,11 @@ def score_arrays(mods: dict[str, Modality], data: dict[str, np.ndarray], params:
     m = cfg["mfsi"]
     out: dict[str, np.ndarray] = {}
     for name, key in MODALITIES:
-        tau = tau_vector(params[f"tau_{name}"])
+        tau, b = tau_vector(params[f"tau_{name}"]), tau_vector(params[f"tau_{name}"], "b")
         d_pos, d_neg = distances(mods[name], data[key])
         out[f"d_{name}_pos"], out[f"d_{name}_neg"] = d_pos, d_neg
-        out[f"p_{name}_pos"] = profile_pos(d_pos, d_neg, tau)
-        out[f"r_{name}"] = margin(d_pos, d_neg, tau)
+        out[f"p_{name}_pos"] = profile_pos(d_pos, d_neg, tau, b)
+        out[f"r_{name}"] = margin(d_pos, d_neg, tau, b)
     out["A_cos"] = agreement(out["p_img_pos"], out["p_txt_pos"], "cos")
     out["A_js"] = agreement(out["p_img_pos"], out["p_txt_pos"], "js")
     a = agreement(out["p_img_pos"], out["p_txt_pos"], m["agreement"])

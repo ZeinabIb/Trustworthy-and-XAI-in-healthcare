@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from mfsi_cxr.constants import FINDINGS
-from mfsi_cxr.mfsi.fit import SplitError, fit_mfsi, score_split
+from mfsi_cxr.mfsi.fit import SplitError, _platt, fit_mfsi, fit_tau, score_split
 from mfsi_cxr.mfsi.profile import profile_pos
 
 COLUMNS = ["patient_id", "study_id", "finding", "y", "y_hat", "prob", "p_img_pos", "p_txt_pos", "d_img_pos",
@@ -108,9 +108,11 @@ def test_tau_per_finding_with_global_fallback(cfg: dict[str, Any]) -> None:
     per = params["tau_img"]["per_finding"]
     assert per["Fracture"]["source"] == "global" and per["Fracture"]["n_pos"] == 3
     assert per["Fracture"]["tau"] == params["tau_img"]["tau"]
+    assert per["Fracture"]["b"] == params["tau_img"]["b"]
     assert per["Edema"]["source"] == "finding"
     rows = score_split(train, val, params, cfg).query("finding == 'Edema'")
-    expected = profile_pos(rows["d_img_pos"].to_numpy(), rows["d_img_neg"].to_numpy(), per["Edema"]["tau"])
+    expected = profile_pos(rows["d_img_pos"].to_numpy(), rows["d_img_neg"].to_numpy(), per["Edema"]["tau"],
+                           per["Edema"]["b"])
     assert np.allclose(rows["p_img_pos"], expected)
 
 
@@ -127,3 +129,55 @@ def test_tau_scope_is_validated(cfg: dict[str, Any]) -> None:
     cfg["mfsi"]["tau_scope"] = "sample"
     with pytest.raises(ValueError, match="tau_scope"):
         fit_mfsi(_export(200, "train", 0), _export(100, "val", 1), cfg, INFORMATIVE, seed=0)
+
+
+def _platt_cfg(cfg: dict[str, Any], **kw: Any) -> dict[str, Any]:
+    return dict(cfg["mfsi"], tau_objective="logloss", offset=True, **kw)
+
+
+def test_platt_recovers_known_tau_and_offset(cfg: dict[str, Any]) -> None:
+    rng = np.random.default_rng(5)
+    gap = rng.normal(0, 4, 20000)
+    target = (rng.random(20000) < 1 / (1 + np.exp(-(gap - 1.5) / 2.0))).astype(float)  # tau 2, b 1.5
+    r = _platt(gap, target, _platt_cfg(cfg))
+    assert r["tau"] == pytest.approx(2.0, rel=0.08) and r["b"] == pytest.approx(1.5, abs=0.2)
+    assert r["converged"] and not r["at_grid_boundary"] and r["logloss_after"] < r["logloss_before_tau1"]
+    no_off = _platt(gap, target, _platt_cfg(cfg) | {"offset": False})
+    assert no_off["b"] == 0.0 and no_off["logloss_after"] > r["logloss_after"]
+
+
+def test_platt_keeps_tau_positive_and_flags_the_bound(cfg: dict[str, Any]) -> None:
+    rng = np.random.default_rng(6)
+    gap = rng.normal(0, 1, 2000)
+    target = (gap < 0).astype(float)  # anti-aligned: best fit would flip the sign
+    r = _platt(gap, target, _platt_cfg(cfg))
+    assert r["tau"] > 0 and r["at_grid_boundary"]
+    assert r["tau"] == pytest.approx(cfg["mfsi"]["tau_grid"]["max"])
+
+
+def test_offset_removes_a_constant_shift(cfg: dict[str, Any]) -> None:
+    """A finding whose gap is shifted by a constant gets the same profile after calibration."""
+    rng = np.random.default_rng(7)
+    n = 3000
+    y = np.full((n, len(FINDINGS)), np.nan)
+    y[:, 0] = rng.random(n) < 0.3
+    d_pos = rng.normal(5, 1, (n, len(FINDINGS)))
+    d_neg = d_pos + np.where(y == 1, 2.0, -2.0) + rng.normal(0, 2, d_pos.shape)
+    c = copy.deepcopy(cfg)
+    c["mfsi"].update(tau_objective="logloss", offset=True, tau_scope="finding")
+    a = fit_tau(d_pos, d_neg, y, c)["per_finding"][FINDINGS[0]]
+    shifted = fit_tau(d_pos, d_neg - 7.0, y, c)["per_finding"][FINDINGS[0]]
+    assert shifted["tau"] == pytest.approx(a["tau"], rel=1e-3)
+    assert shifted["b"] == pytest.approx(a["b"] - 7, abs=1e-2)
+
+
+def test_ece_with_offset_is_refused(cfg: dict[str, Any]) -> None:
+    cfg["mfsi"].update(tau_objective="ece", offset=True)
+    with pytest.raises(ValueError, match="offset"):
+        fit_mfsi(_export(200, "train", 0), _export(100, "val", 1), cfg, INFORMATIVE, seed=0)
+
+
+def test_ece_objective_without_offset_is_the_plan(cfg: dict[str, Any]) -> None:
+    cfg["mfsi"].update(tau_objective="ece", offset=False, tau_scope="global")
+    params = fit_mfsi(_export(300, "train", 0), _export(150, "val", 1), cfg, INFORMATIVE, seed=0)
+    assert params["tau_img"]["b"] == 0.0 and params["tau_img"]["objective"] == "ece"

@@ -11,9 +11,11 @@ mfsi:
   alpha_grid: [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
   alpha_folds: 5              # K-fold CV over train positives; fewer positives than folds -> alpha = 0
   alpha_seed: 0
-  tau_grid: {min: 0.05, max: 20.0, n: 60}   # log grid; minimise ECE of p+ on val
+  tau_grid: {min: 0.05, max: 20.0, n: 60}   # tau range (both objectives); log grid for ece, n unused by logloss
   tau_scope: finding          # finding (Zeinab 2026-10-15: one tau per finding and modality) | global
   tau_min_class_count: 10     # per-finding tau needs this many val positives and negatives, else global tau
+  tau_objective: logloss      # logloss (Platt; Zeinab 2026-10-15) | ece (plan as written; needs offset: false)
+  offset: true                # per-finding offset b: p+ = sigmoid((d_- - d_+ - b)/tau) (Zeinab 2026-10-15)
   ece_bins: 15
   agreement: cos              # cos (primary) | js (1 - JS, base 2) | none (ablation: A = 1)
   combine: min                # min (primary) | mean (ablation)

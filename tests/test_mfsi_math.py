@@ -113,11 +113,12 @@ def test_pooled_covariance() -> None:
 
 def test_profile_and_margin_forms_agree() -> None:
     d_pos, d_neg = RNG.uniform(0, 10, 50), RNG.uniform(0, 10, 50)
-    for tau in (0.3, 1.0, 4.0):
-        p = profile_pos(d_pos, d_neg, tau)
-        assert np.allclose(p, profile_pos_lse(d_pos, d_neg, tau))
-        r = margin(d_pos, d_neg, tau)
+    for tau, b in ((0.3, 0.0), (1.0, 0.0), (4.0, 0.0), (1.0, 2.5), (4.0, -1.0)):
+        p = profile_pos(d_pos, d_neg, tau, b)
+        assert np.allclose(p, profile_pos_lse(d_pos, d_neg, tau, b))
+        r = margin(d_pos, d_neg, tau, b)
         assert np.allclose(r, np.abs(2 * p - 1)) and np.allclose(r, np.abs(p - (1 - p)))
+    assert np.allclose(profile_pos(d_pos, d_neg, 1.0, 3.0), profile_pos(d_pos, d_neg - 3.0, 1.0))
 
 
 def test_separated_vs_overlapping_clouds() -> None:
