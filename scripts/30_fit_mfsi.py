@@ -27,14 +27,18 @@ def main(argv: list[str] | None = None) -> int:
         train, val = load_split(cfg, "train", seed), load_split(cfg, "val", seed)
         params = fit_mfsi(train, val, cfg, informative, seed)
         write_params(params, artifact_dir(cfg) / f"mfsi_params_seed{seed}.json", cfg, seed)
-        rows = [{"modality": name, "finding": f, **params[f"cov_{name}"][f]}
+        rows = [{"modality": name, "finding": f, **params[f"cov_{name}"][f],
+                 **{k if k == "tau" else f"tau_{k}": v
+                    for k, v in params[f"tau_{name}"]["per_finding"][f].items()}}
                 for name, _ in MODALITIES for f in FINDINGS]
         table = pd.DataFrame(rows)
         out = output_dir(cfg) / "tables" / f"mfsi_fit_seed{seed}.csv"
         out.parent.mkdir(parents=True, exist_ok=True)
         table.to_csv(out, index=False)
         write_meta(out, cfg, seed)
-        print(table.pivot_table(index="finding", columns="modality", values=["n_pos", "alpha"]).to_string())
+        shown = ["n_pos", "alpha", "tau", "tau_source"]
+        pivot = table.pivot_table(index="finding", columns="modality", values=shown, aggfunc="first")
+        print(pivot.to_string())
         for name, _ in MODALITIES:
             r = params[f"reduce_{name}"]
             print(f"seed {seed} {name}: {m['reduce']['method']} {r['d_in']} -> {r['k']} dims "
@@ -43,6 +47,9 @@ def main(argv: list[str] | None = None) -> int:
             note = "  STOP-AND-ASK: tau at the grid boundary" if t["at_grid_boundary"] else ""
             print(f"seed {seed} tau_{name} = {t['tau']:.3g}  ECE {t['ece_before_tau1']:.4f} (tau=1) -> "
                   f"{t['ece_after']:.4f}{note}")
+            edge = sorted(f for f, r in t["per_finding"].items() if r["at_grid_boundary"])
+            if edge:
+                print(f"STOP-AND-ASK: per-finding tau_{name} at the grid boundary for {edge}")
         for cls in ("pos", "neg"):
             bad = table[(table[f"cond_{cls}"] > m["cond_max"]) | (table[f"ridge_{cls}"] > 0)]
             if len(bad):

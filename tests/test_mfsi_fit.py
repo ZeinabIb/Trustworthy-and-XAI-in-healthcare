@@ -10,6 +10,7 @@ import pytest
 
 from mfsi_cxr.constants import FINDINGS
 from mfsi_cxr.mfsi.fit import SplitError, fit_mfsi, score_split
+from mfsi_cxr.mfsi.profile import profile_pos
 
 COLUMNS = ["patient_id", "study_id", "finding", "y", "y_hat", "prob", "p_img_pos", "p_txt_pos", "d_img_pos",
            "d_img_neg", "d_txt_pos", "d_txt_neg", "r_img", "r_txt", "A_cos", "A_js", "R", "R_mean", "stratum",
@@ -97,3 +98,32 @@ def test_ablation_switches(cfg: dict[str, Any]) -> None:
     cfg["mfsi"]["uncertain_policy"] = "ones"
     assert fit_mfsi(train, val, cfg, INFORMATIVE, seed=0)["cov_img"]["Edema"]["n_pos"] > \
         params["cov_img"]["Edema"]["n_pos"]
+
+
+def test_tau_per_finding_with_global_fallback(cfg: dict[str, Any]) -> None:
+    train, val = _export(300, "train", 0), _export(200, "val", 1)
+    val["y"][:, FINDINGS.index("Fracture")] = np.where(np.arange(200) < 3, 1.0, 0.0)  # 3 val positives
+    cfg["mfsi"]["tau_scope"] = "finding"
+    params = fit_mfsi(train, val, cfg, INFORMATIVE, seed=0)
+    per = params["tau_img"]["per_finding"]
+    assert per["Fracture"]["source"] == "global" and per["Fracture"]["n_pos"] == 3
+    assert per["Fracture"]["tau"] == params["tau_img"]["tau"]
+    assert per["Edema"]["source"] == "finding"
+    rows = score_split(train, val, params, cfg).query("finding == 'Edema'")
+    expected = profile_pos(rows["d_img_pos"].to_numpy(), rows["d_img_neg"].to_numpy(), per["Edema"]["tau"])
+    assert np.allclose(rows["p_img_pos"], expected)
+
+
+def test_tau_global_scope_uses_one_tau(cfg: dict[str, Any]) -> None:
+    train, val = _export(300, "train", 0), _export(200, "val", 1)
+    cfg["mfsi"]["tau_scope"] = "global"
+    params = fit_mfsi(train, val, cfg, INFORMATIVE, seed=0)
+    taus = {r["tau"] for r in params["tau_txt"]["per_finding"].values()}
+    assert taus == {params["tau_txt"]["tau"]}
+    assert all(r["source"] == "global" for r in params["tau_txt"]["per_finding"].values())
+
+
+def test_tau_scope_is_validated(cfg: dict[str, Any]) -> None:
+    cfg["mfsi"]["tau_scope"] = "sample"
+    with pytest.raises(ValueError, match="tau_scope"):
+        fit_mfsi(_export(200, "train", 0), _export(100, "val", 1), cfg, INFORMATIVE, seed=0)

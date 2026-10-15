@@ -1,7 +1,9 @@
 """MFSI fit (train), tuning (val) and scoring (any split) from the frozen Phase 2 exports.
 
 - Clouds, prototypes, covariances: TRAIN only. alpha: K-fold CV over train positives (mean held-out Gaussian
-  log-likelihood). tau (per modality, global), y_hat thresholds, theta_R per stratum: VAL only.
+  log-likelihood). tau, y_hat thresholds, theta_R per stratum: VAL only. tau is per finding and modality
+  (mfsi.tau_scope: finding; Zeinab 2026-10-15), falling back to the modality's global tau when a finding has
+  fewer than tau_min_class_count val positives or negatives; tau_scope: global is the plan's starting point.
 - Scoring a split needs only the fitted parameters and the train exports; its labels are copied into the
   output for later analysis but never used. The test split is scored, never looked at.
 - Each modality is first projected onto its train-PCA subspace (mfsi.reduce; reduce.py), then everything
@@ -134,19 +136,49 @@ def distances(mod: Modality, z: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return d_pos, d_neg
 
 
+def _tau_search(gap: np.ndarray, target: np.ndarray, grid: np.ndarray, bins: int) -> dict[str, Any]:
+    errs = [ece(expit(gap / t), target, bins) for t in grid]
+    best = int(np.argmin(errs))
+    return {"tau": float(grid[best]), "ece_after": float(errs[best]),
+            "ece_before_tau1": ece(expit(gap), target, bins), "at_grid_boundary": best in (0, len(grid) - 1)}
+
+
 def fit_tau(d_pos: np.ndarray, d_neg: np.ndarray, y: np.ndarray, cfg: dict[str, Any]) -> dict[str, Any]:
-    """Global tau per modality minimising ECE of p+ against the class label on VAL."""
+    """tau per modality minimising ECE of p+ against the class label on VAL: the global tau (all findings
+    pooled) and, under tau_scope 'finding', one tau per finding (global fallback when a class is too small).
+    `per_finding[f]['tau']` is what scoring uses."""
     m = cfg["mfsi"]
+    if m["tau_scope"] not in ("finding", "global"):
+        raise ValueError(f"mfsi.tau_scope must be finding or global, got {m['tau_scope']!r}")
     g = m["tau_grid"]
     grid = np.geomspace(g["min"], g["max"], g["n"])
     label, used = tau_targets(y, m["uncertain_policy"])
-    gap = (d_neg - d_pos)[used]
-    target = label[used]
-    errs = [ece(expit(gap / t), target, m["ece_bins"]) for t in grid]
-    best = int(np.argmin(errs))
-    return {"tau": float(grid[best]), "ece_after": float(errs[best]),
-            "ece_before_tau1": ece(expit(gap), target, m["ece_bins"]),
-            "at_grid_boundary": best in (0, len(grid) - 1)}
+    gap = d_neg - d_pos
+    out = _tau_search(gap[used], label[used], grid, m["ece_bins"])
+    per: dict[str, dict[str, Any]] = {}
+    for j, f in enumerate(FINDINGS):
+        lab = label[used[:, j], j]
+        n_pos, n_neg = int(lab.sum()), int(len(lab) - lab.sum())
+        rec: dict[str, Any] = {"n_pos": n_pos, "n_neg": n_neg}
+        if m["tau_scope"] == "finding" and min(n_pos, n_neg) >= m["tau_min_class_count"]:
+            rec.update(_tau_search(gap[used[:, j], j], lab, grid, m["ece_bins"]), source="finding")
+        else:
+            if m["tau_scope"] == "finding":
+                log.info("tau %s: %d val positives / %d negatives < %d -> global tau", f, n_pos, n_neg,
+                         m["tau_min_class_count"])
+            g_j = gap[used[:, j], j]
+            rec.update(tau=out["tau"], source="global", at_grid_boundary=False,
+                       ece_before_tau1=ece(expit(g_j), lab, m["ece_bins"]) if len(lab) else None,
+                       ece_after=ece(expit(g_j / out["tau"]), lab, m["ece_bins"]) if len(lab) else None)
+        per[f] = rec
+    out["scope"] = m["tau_scope"]
+    out["per_finding"] = per
+    return out
+
+
+def tau_vector(tau_params: dict[str, Any]) -> np.ndarray:
+    """The (L,) tau used for scoring, in FINDINGS order."""
+    return np.array([tau_params["per_finding"][f]["tau"] for f in FINDINGS])
 
 
 def fit_mfsi(train: dict[str, np.ndarray], val: dict[str, np.ndarray], cfg: dict[str, Any],
@@ -170,6 +202,9 @@ def fit_mfsi(train: dict[str, np.ndarray], val: dict[str, np.ndarray], cfg: dict
         if params[f"tau_{name}"]["at_grid_boundary"]:
             log.warning("tau_%s hit the grid boundary (%.3g): STOP-AND-ASK", name,
                         params[f"tau_{name}"]["tau"])
+        edge = [f for f, r in params[f"tau_{name}"]["per_finding"].items() if r["at_grid_boundary"]]
+        if edge:
+            log.warning("tau_%s at the grid boundary for %s: STOP-AND-ASK", name, edge)
     scored = score_arrays(mods, val, params, cfg, thresholds=None)
     label, used = tau_targets(val["y"], m["uncertain_policy"])
     params["yhat_threshold"] = {f: yhat_threshold(val["probs"][used[:, j], j], label[used[:, j], j],
@@ -190,7 +225,7 @@ def score_arrays(mods: dict[str, Modality], data: dict[str, np.ndarray], params:
     m = cfg["mfsi"]
     out: dict[str, np.ndarray] = {}
     for name, key in MODALITIES:
-        tau = params[f"tau_{name}"]["tau"]
+        tau = tau_vector(params[f"tau_{name}"])
         d_pos, d_neg = distances(mods[name], data[key])
         out[f"d_{name}_pos"], out[f"d_{name}_neg"] = d_pos, d_neg
         out[f"p_{name}_pos"] = profile_pos(d_pos, d_neg, tau)
