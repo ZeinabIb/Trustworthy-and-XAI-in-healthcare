@@ -1,0 +1,9 @@
+# Evaluation (Phase 4). Merged into base.yaml; profiles may override eval.bootstrap_B only. Pre-specified.
+
+eval:
+  coverages: [0.90, 0.75, 0.50]   # accuracy reported at these coverages
+  calibration_bins: 15            # equal-mass bins for ECE / MCE of the profiles
+  alpha: 0.05                     # CIs are (1 - alpha); BH false-discovery rate across the 14 findings
+  bootstrap_seed: 0
+  blank_policy: negative          # correctness on y in {0,1} with blank -> 0 (DECISIONS 2026-10-11) | exclude
+  r_deciles: 10                   # calibration of R: accuracy within deciles
