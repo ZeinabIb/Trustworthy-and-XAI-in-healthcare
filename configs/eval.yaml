@@ -12,3 +12,13 @@ eval:
   blank_shift_warn: 0.01          # |macro AURC change| with blanks excluded above this -> STOP-AND-ASK
   exclude_min_pos: 10             # 'exclude blanks' sensitivity only for findings with >= this many explicit
   exclude_min_neg: 10             #   positives and negatives in the split (Zeinab 2026-10-15; also for full)
+  added_value:                    # pre-registered secondary analysis (docs/PREREG_ADDED_VALUE.md, 2026-10-15)
+    C: 1.0                        # (a) logistic regression, L2, lbfgs
+    max_iter: 1000                # (a) solver iterations (convergence only; not a modelling choice)
+    min_correct: 10               # (a) eligibility per seed on val
+    min_wrong: 10
+    cv_folds: 5                   # (a) dev path: patient-grouped CV on val
+    quantiles: [0.2, 0.4, 0.6, 0.8]   # (b) MSP quintile edges from val; coinciding edges merged
+    min_stratum_correct: 5        # (b) stratum eligibility (fixed on the evaluated sample)
+    min_stratum_wrong: 5
+    min_strata: 3                 # (b) eligible strata needed for a (finding, seed) value
