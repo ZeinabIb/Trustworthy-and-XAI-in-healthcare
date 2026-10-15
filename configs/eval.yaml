@@ -24,3 +24,21 @@ eval:
     min_stratum_correct: 5        # (b) stratum eligibility (fixed on the evaluated sample)
     min_stratum_wrong: 5
     min_strata: 3                 # (b) eligible strata needed for a (finding, seed) value
+  sensitivity:                    # plan 4 sensitivity table: each row changes exactly ONE thing from the default
+    - {variable: agreement term, variant: 1 - JS, set: {mfsi.agreement: js}}
+    - {variable: agreement term, variant: removed (A = 1), set: {mfsi.agreement: none}}
+    - {variable: composition, variant: mean of margins, set: {mfsi.combine: mean}}
+    - {variable: rare-finding covariance, variant: pooled-target shrinkage, set: {mfsi.covariance: pooled_target}}
+    - {variable: rare-finding covariance, variant: Ledoit-Wolf, set: {mfsi.covariance: ledoit_wolf}}
+    - {variable: rare-finding covariance, variant: tied (Lee), set: {mfsi.covariance: tied}}
+    - {variable: rare-finding covariance, variant: full sample + ridge, set: {mfsi.covariance: sample_ridge}}
+    - {variable: cloud construction, variant: U-Ones, set: {mfsi.uncertain_policy: ones}}
+    - {variable: distance, variant: Euclidean, set: {mfsi.distance: euclidean}}
+    - {variable: distance, variant: LOF, set: {mfsi.distance: lof}}
+    - {variable: encoders, variant: contrastively aligned pair, not_run: "aligned model not chosen (deferred, Zeinab 2026-10-15)"}
+    - {variable: temperature, variant: tau = 1 (b = 0), set: {mfsi.tau_objective: none}}
+    - {variable: text-uninformed findings, variant: naive fallback (one stratum), set: {mfsi.one_witness: naive}}
+    - {variable: dimension (2026-10-15), variant: full 1024-d, set: {mfsi.reduce.method: none}}
+    - {variable: profile calibration (2026-10-15), variant: "plan tau: global, ECE, no offset", set: {mfsi.tau_objective: ece, mfsi.offset: false, mfsi.tau_scope: global}}
+    - {variable: theta_R scope (2026-10-15), variant: per stratum, set: {mfsi.theta_scope: stratum}}
+    - {variable: y_hat rule (2026-10-15), variant: Youden + coherent MSP, set: {mfsi.yhat_rule: youden_coherent}, changes_correctness: true}
