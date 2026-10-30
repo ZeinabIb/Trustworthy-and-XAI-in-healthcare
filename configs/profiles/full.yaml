@@ -1,7 +1,8 @@
-# full: university GPU server. All reported results come from this profile. Never reads artifacts/pilot/.
+# full: all reported results come from this profile. Never reads artifacts/pilot/, except the patient list below.
 data:
-  root: null              # server path (user-set), or env MFSI_DATA_ROOT
+  root: null              # data path (user-set), or env MFSI_DATA_ROOT
   pilot_patients: 20000   # Zeinab 2026-10-30
+  exclude_patients_from: artifacts/pilot/pilot_patients.txt  # no pilot patient in full (Zeinab 2026-10-30)
   image_format: png       # Zeinab 2026-10-30
 image:
   size: 224

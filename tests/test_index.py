@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from mfsi_cxr.constants import FINDINGS
 from mfsi_cxr.data.index import INDEX_COLUMNS, parse_study, sample_patients
+from mfsi_cxr.data.pipeline import build_index
+from mfsi_cxr.utils.config import load_config
 
 
 def test_parse_study() -> None:
@@ -31,6 +34,36 @@ def test_sample_size_and_determinism(built: dict[str, Any]) -> None:
     assert len(a) == 12 and len(set(a)) == 12
     assert a == _sample(built, 12)
     assert a != _sample(built, 12, seed=1)
+
+
+def test_excluded_patients_are_never_sampled(synthetic_cfg: dict[str, Any], tmp_path: Path) -> None:
+    cfg = synthetic_cfg
+    cfg["data"]["pilot_patients"] = 12
+    first = set(build_index(cfg)["patient_id"])
+    listed = tmp_path / "exclude.txt"
+    listed.write_text("\n".join(sorted(first)[:6]) + "\n", encoding="utf-8")
+    cfg["data"]["exclude_patients_from"] = str(listed)
+    second = set(build_index(cfg)["patient_id"])
+    assert len(second) == 12
+    assert not second & set(sorted(first)[:6])
+
+
+@pytest.mark.parametrize("content", [None, " \n"])
+def test_missing_or_empty_exclusion_list_fails(
+    synthetic_cfg: dict[str, Any], tmp_path: Path, content: str | None
+) -> None:
+    listed = tmp_path / "exclude.txt"
+    if content is not None:
+        listed.write_text(content, encoding="utf-8")
+    synthetic_cfg["data"]["exclude_patients_from"] = str(listed)
+    with pytest.raises((FileNotFoundError, ValueError)):
+        build_index(synthetic_cfg)
+
+
+def test_only_full_excludes_the_pilot_cohort() -> None:
+    assert load_config("full")["data"]["exclude_patients_from"] == "artifacts/pilot/pilot_patients.txt"
+    assert load_config("pilot")["data"]["exclude_patients_from"] is None
+    assert load_config("smoke")["data"]["exclude_patients_from"] is None
 
 
 def test_null_means_all_patients(built: dict[str, Any]) -> None:

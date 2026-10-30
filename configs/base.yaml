@@ -8,6 +8,7 @@ paths:
 data:
   root: null                  # set per profile, or via env MFSI_DATA_ROOT
   pilot_patients: null        # number of patients sampled; null = all patients
+  exclude_patients_from: null # text file of patient ids removed before sampling (relative to the repo)
   image_format: png           # png | dicom | synthetic
   max_priors: 4
   max_images_per_study: 3

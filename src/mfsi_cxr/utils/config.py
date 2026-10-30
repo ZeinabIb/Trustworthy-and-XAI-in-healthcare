@@ -33,6 +33,7 @@ ALLOWED_PROFILE_KEYS: frozenset[str] = frozenset(
     {
         "data.root",
         "data.pilot_patients",
+        "data.exclude_patients_from",  # full leaves out the pilot cohort (DECISIONS 2026-10-30)
         "data.image_format",
         "model.weights",          # tiny_random in smoke only (no downloads in tests); DECISIONS 2026-10-11
         "image.size",

@@ -13,13 +13,25 @@ from mfsi_cxr.data.labels import labels_per_study, prevalence_table, read_label_
 from mfsi_cxr.data.schema import read_metadata, structural_columns
 from mfsi_cxr.data.splits import make_splits, radiologist_patients
 from mfsi_cxr.data.text_inputs import TextBuilder
-from mfsi_cxr.utils.config import data_root
+from mfsi_cxr.utils.config import REPO_ROOT, data_root
 from mfsi_cxr.utils.io import artifact_dir, output_dir, read_table, write_meta, write_table
 from mfsi_cxr.utils.logging import get_logger
 
 log = get_logger("pipeline")
 # Plan 07: log findings with fewer positives than this in train (never drop them).
 LOW_POSITIVES = 5
+
+
+def excluded_patients(cfg: dict[str, Any]) -> set[str]:
+    """Patient ids of data.exclude_patients_from (one per line); a listed file must exist and hold ids."""
+    listed = cfg["data"]["exclude_patients_from"]
+    if listed is None:
+        return set()
+    path = REPO_ROOT / listed  # an absolute path stays absolute
+    ids = set(path.read_text(encoding="utf-8").split())
+    if not ids:
+        raise ValueError(f"exclusion list {path} is empty")
+    return ids
 
 
 def build_index(cfg: dict[str, Any]) -> pd.DataFrame:
@@ -29,6 +41,12 @@ def build_index(cfg: dict[str, Any]) -> pd.DataFrame:
     images, dropped = assign_study_rank(build_image_table(meta, cfg), dcfg["study_overlap_policy"])
     if dropped:
         log.warning("dropped %d patients whose studies interleave in time", len(dropped))
+    excluded = excluded_patients(cfg)
+    if excluded:
+        n_before = images["patient_id"].nunique()
+        images = images[~images["patient_id"].isin(excluded)]
+        n_removed = n_before - images["patient_id"].nunique()
+        log.info("excluded %d of %d listed patients before sampling", n_removed, len(excluded))
     records = read_label_records(root / dcfg["labels_file"])
     labels = labels_per_study(records, images, dcfg["columns"]["image_path"], dcfg["label_aggregation"])
 
